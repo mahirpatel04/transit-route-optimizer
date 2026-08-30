@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: transit
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: transit_optimizer
+    ports:
+      - "5432:5432"
+    volumes:
+      - "pgdata:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+  
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.goose
+    environment:
+      DATABASE_URL: postgres;//${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    command: ["-dir", "migrations", "postgres", "${DATABASE_URL_COMPOSE}", "up"]
+  
+volumes:
+  pgdata:
