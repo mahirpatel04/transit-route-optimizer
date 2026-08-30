@@ -1,33 +1,27 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/mahirpatel04/transit-route-optimizer/internal/config"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
 
 func main() {
-	// load the config
-	cfg, err := config.Load()
+	body, err := gtfs.FetchData("https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip")
 	if err != nil {
-		log.Fatalf("config error: %v", err)
+		log.Fatalf("fetch failed: %v", err)
 	}
 
-	// connect to the database
-	conn, err := pgx.Connect(context.Background(), cfg.DatabaseURL)
+	zr, err := gtfs.OpenZip(body)
 	if err != nil {
-		log.Fatalf("unable to connect to database: %v", err)
-	}
-	defer conn.Close(context.Background())
-
-	var count int
-	err = conn.QueryRow(context.Background(), "SELECT count(*) FROM stops").Scan(&count)
-	if err != nil {
-		log.Fatalf("query failed: %v", err)
+		log.Fatalf("zip open failed: %v", err)
 	}
 
-	fmt.Printf("stops table has %d rows\n", count)
+	stopsData, err := gtfs.ReadFileFromZip(zr, "stops.txt")
+	if err != nil {
+		log.Fatalf("read stops.txt failed: %v", err)
+	}
+
+	fmt.Printf("stops.txt is %d bytes\n", len(stopsData))
 }
