@@ -16,11 +16,13 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 
-	conn, err := pgx.Connect(context.Background(), cfg.DatabaseURL)
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("unable to connect to database: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close(ctx)
 
 	body, err := gtfs.FetchData("https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip")
 	if err != nil {
@@ -42,11 +44,6 @@ func main() {
 		log.Fatalf("parse stops.txt failed: %v", err)
 	}
 
-	_, err = db.InsertStops(context.Background(), conn, stops)
-	if err != nil {
-		log.Fatalf("insert stops failed: %v", err)
-	}
-
 	routesData, err := gtfs.ReadFileFromZip(zr, "routes.txt")
 	if err != nil {
 		log.Fatalf("read routes.txt failed: %v", err)
@@ -55,11 +52,6 @@ func main() {
 	routes, err := gtfs.ParseRouteFile(routesData)
 	if err != nil {
 		log.Fatalf("parse routes.txt failed: %v", err)
-	}
-
-	_, err = db.InsertRoutes(context.Background(), conn, routes)
-	if err != nil {
-		log.Fatalf("insert routes failed: %v", err)
 	}
 
 	calendarData, err := gtfs.ReadFileFromZip(zr, "calendar.txt")
@@ -72,11 +64,6 @@ func main() {
 		log.Fatalf("parse calendar.txt failed: %v", err)
 	}
 
-	_, err = db.InsertCalendar(context.Background(), conn, calendars)
-	if err != nil {
-		log.Fatalf("insert calendar failed: %v", err)
-	}
-
 	calendarDatesData, err := gtfs.ReadFileFromZip(zr, "calendar_dates.txt")
 	if err != nil {
 		log.Fatalf("read calendar_dates.txt failed: %v", err)
@@ -85,11 +72,6 @@ func main() {
 	calendarDates, err := gtfs.ParseCalendarDatesFile(calendarDatesData)
 	if err != nil {
 		log.Fatalf("parse calendar_dates.txt failed: %v", err)
-	}
-
-	_, err = db.InsertCalendarDates(context.Background(), conn, calendarDates)
-	if err != nil {
-		log.Fatalf("insert calendar_dates failed: %v", err)
 	}
 
 	tripsData, err := gtfs.ReadFileFromZip(zr, "trips.txt")
@@ -102,11 +84,6 @@ func main() {
 		log.Fatalf("parse trips.txt failed: %v", err)
 	}
 
-	_, err = db.InsertTrips(context.Background(), conn, trips)
-	if err != nil {
-		log.Fatalf("insert trips failed: %v", err)
-	}
-
 	stopTimesData, err := gtfs.ReadFileFromZip(zr, "stop_times.txt")
 	if err != nil {
 		log.Fatalf("read stop_times.txt failed: %v", err)
@@ -117,8 +94,41 @@ func main() {
 		log.Fatalf("parse stop_times.txt failed: %v", err)
 	}
 
-	_, err = db.InsertStopTimes(context.Background(), conn, stopTimes)
+	tx, err := conn.Begin(ctx)
 	if err != nil {
+		log.Fatalf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.TruncateAll(ctx, tx); err != nil {
+		log.Fatalf("truncate failed: %v", err)
+	}
+
+	if _, err := db.InsertStops(ctx, tx, stops); err != nil {
+		log.Fatalf("insert stops failed: %v", err)
+	}
+
+	if _, err := db.InsertRoutes(ctx, tx, routes); err != nil {
+		log.Fatalf("insert routes failed: %v", err)
+	}
+
+	if _, err := db.InsertCalendar(ctx, tx, calendars); err != nil {
+		log.Fatalf("insert calendar failed: %v", err)
+	}
+
+	if _, err := db.InsertCalendarDates(ctx, tx, calendarDates); err != nil {
+		log.Fatalf("insert calendar_dates failed: %v", err)
+	}
+
+	if _, err := db.InsertTrips(ctx, tx, trips); err != nil {
+		log.Fatalf("insert trips failed: %v", err)
+	}
+
+	if _, err := db.InsertStopTimes(ctx, tx, stopTimes); err != nil {
 		log.Fatalf("insert stop_times failed: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Fatalf("commit failed: %v", err)
 	}
 }

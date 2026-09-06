@@ -21,17 +21,17 @@
 - [x] `internal/gtfs.ParseStopFile`: parse `stops.txt` into `[]Stop`
 - [x] `internal/db.InsertStops`: bulk-load stops into Postgres via `pgx.CopyFrom`
 - [x] `cmd/ingest/main.go`: wire fetch → unzip → parse → insert for stops
-- [ ] Parse + insert the remaining GTFS files, in FK order:
-  - [ ] `routes.txt` → `routes` table
-  - [ ] `calendar.txt` → `calendar` table
-  - [ ] `calendar_dates.txt` → `calendar_dates` table
-  - [ ] `trips.txt` → `trips` table
-  - [ ] `stop_times.txt` → `stop_times` table (largest file; do this last)
-- [ ] Harden `ParseStopFile` (and the new parsers) to read CSV columns by **header name**, not fixed index — GTFS feeds vary column order/optional columns, most likely to bite on `stop_times.txt`
-- [ ] Replace `log.Fatalf` inside `internal/gtfs/fetch.go` with a returned `error` — a library function should never kill the process; this becomes a hard requirement once the code runs inside Lambda (Phase 3), where a fatal exit mid-invocation is harder to diagnose than a returned error
-- [ ] Decide re-ingestion strategy: full truncate-and-reload per run, or upsert/diff — GTFS feeds republish periodically and stop/trip IDs can be reused across feed versions
+- [x] Parse + insert the remaining GTFS files, in FK order:
+  - [x] `routes.txt` → `routes` table
+  - [x] `calendar.txt` → `calendar` table
+  - [x] `calendar_dates.txt` → `calendar_dates` table
+  - [x] `trips.txt` → `trips` table
+  - [x] `stop_times.txt` → `stop_times` table
+- [x] Harden all parsers to read CSV columns by **header name** via a shared `header` map (`internal/gtfs/parse.go`'s `newHeader`/`h.get`), not fixed index
+- [x] Replace `log.Fatalf` inside `internal/gtfs/fetch.go` with a returned `error` — a library function should never kill the process; this becomes a hard requirement once the code runs inside Lambda (Phase 3), where a fatal exit mid-invocation is harder to diagnose than a returned error
+- [x] Re-ingestion strategy: `cmd/ingest/main.go` truncates all 6 tables (`db.TruncateAll`, `RESTART IDENTITY CASCADE`) and re-inserts within a single `pgx.Tx`, committed only if every insert succeeds — the ingest job can now be run repeatedly against the same database without the old `duplicate key value violates unique constraint` error
 
-**Open decisions:** none blocking — this phase is a straightforward extension of the existing pattern.
+Phase 1 is fully closed out.
 
 ## Phase 2 — Migrate to Aurora Serverless
 
@@ -56,7 +56,7 @@
 **Open decisions:**
 
 - Deployment packaging (Lambda container image vs. zip + custom runtime) — container image is usually simpler for Go-with-dependencies
-- Whether one Lambda ingests all GTFS files per run, or one Lambda per file behind a Step Functions workflow (matters once Phase 1's file list — routes/calendar/trips/stop_times — is all live)
+- Whether one Lambda ingests all GTFS files per run, or one Lambda per file behind a Step Functions workflow (Phase 1's file list — routes/calendar/trips/stop_times — is now all live, so this can be decided for real)
 
 ## Phase 4 — Time-dependent A* routing
 
@@ -75,4 +75,4 @@
 
 ## Suggested immediate next step
 
-Finish Phase 1 (the remaining GTFS parsers) before touching AWS — it's the same pattern you already know, it's what Phase 4's algorithm will query against, and it de-risks the header-based-parsing fix while there's only one file's worth of pain to feel instead of five.
+Phase 1 is done. Start Phase 2: provision Aurora Serverless and settle its open decisions (IaC tool, secrets management, networking model).

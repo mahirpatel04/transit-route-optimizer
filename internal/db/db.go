@@ -5,10 +5,27 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
 
-func InsertStops(ctx context.Context, conn *pgx.Conn, stops []gtfs.Stop) (int64, error) {
+// db is satisfied by both *pgx.Conn and pgx.Tx, letting the insert/truncate
+// helpers run either standalone or inside a transaction.
+type db interface {
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func TruncateAll(ctx context.Context, conn db) error {
+	_, err := conn.Exec(ctx, "TRUNCATE stops, routes, calendar, calendar_dates, trips, stop_times RESTART IDENTITY CASCADE")
+	if err != nil {
+		return fmt.Errorf("failed to truncate tables: %w", err)
+	}
+
+	return nil
+}
+
+func InsertStops(ctx context.Context, conn db, stops []gtfs.Stop) (int64, error) {
 	rows := make([][]any, len(stops))
 	for i, s := range stops {
 		var parentStation any
@@ -34,7 +51,7 @@ func InsertStops(ctx context.Context, conn *pgx.Conn, stops []gtfs.Stop) (int64,
 	return copyCount, nil
 }
 
-func InsertRoutes(ctx context.Context, conn *pgx.Conn, routes []gtfs.Route) (int64, error) {
+func InsertRoutes(ctx context.Context, conn db, routes []gtfs.Route) (int64, error) {
 	rows := make([][]any, len(routes))
 	for i, r := range routes {
 		rows[i] = []any{r.RouteId, r.RouteName, r.RouteType}
@@ -53,7 +70,7 @@ func InsertRoutes(ctx context.Context, conn *pgx.Conn, routes []gtfs.Route) (int
 	return copyCount, nil
 }
 
-func InsertCalendar(ctx context.Context, conn *pgx.Conn, calendars []gtfs.Calendar) (int64, error) {
+func InsertCalendar(ctx context.Context, conn db, calendars []gtfs.Calendar) (int64, error) {
 	rows := make([][]any, len(calendars))
 	for i, c := range calendars {
 		rows[i] = []any{
@@ -78,7 +95,7 @@ func InsertCalendar(ctx context.Context, conn *pgx.Conn, calendars []gtfs.Calend
 	return copyCount, nil
 }
 
-func InsertCalendarDates(ctx context.Context, conn *pgx.Conn, dates []gtfs.CalendarDate) (int64, error) {
+func InsertCalendarDates(ctx context.Context, conn db, dates []gtfs.CalendarDate) (int64, error) {
 	rows := make([][]any, len(dates))
 	for i, d := range dates {
 		rows[i] = []any{d.ServiceId, d.Date, d.ExceptionType}
@@ -97,7 +114,7 @@ func InsertCalendarDates(ctx context.Context, conn *pgx.Conn, dates []gtfs.Calen
 	return copyCount, nil
 }
 
-func InsertTrips(ctx context.Context, conn *pgx.Conn, trips []gtfs.Trip) (int64, error) {
+func InsertTrips(ctx context.Context, conn db, trips []gtfs.Trip) (int64, error) {
 	rows := make([][]any, len(trips))
 	for i, t := range trips {
 		rows[i] = []any{t.TripId, t.RouteId, t.ServiceId}
@@ -116,7 +133,7 @@ func InsertTrips(ctx context.Context, conn *pgx.Conn, trips []gtfs.Trip) (int64,
 	return copyCount, nil
 }
 
-func InsertStopTimes(ctx context.Context, conn *pgx.Conn, stopTimes []gtfs.StopTime) (int64, error) {
+func InsertStopTimes(ctx context.Context, conn db, stopTimes []gtfs.StopTime) (int64, error) {
 	rows := make([][]any, len(stopTimes))
 	for i, st := range stopTimes {
 		rows[i] = []any{st.TripId, st.StopId, st.ArrivalTime, st.DepartureTime, st.StopSequence}
