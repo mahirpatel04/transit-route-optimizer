@@ -33,3 +33,22 @@ func InsertStops(ctx context.Context, conn *pgx.Conn, stops []gtfs.Stop) (int64,
 
 	return copyCount, nil
 }
+
+func InsertRoutes(ctx context.Context, conn *pgx.Conn, routes []gtfs.Route) (int64, error) {
+	rows := make([][]any, len(routes))
+	for i, r := range routes {
+		rows[i] = []any{r.RouteId, r.RouteName, r.RouteType}
+	}
+
+	copyCount, err := conn.CopyFrom(
+		ctx,
+		pgx.Identifier{"routes"},
+		[]string{"route_id", "route_name", "route_type"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to copy routes: %w", err)
+	}
+
+	return copyCount, nil
+}

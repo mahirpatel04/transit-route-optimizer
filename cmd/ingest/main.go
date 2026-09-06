@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/jackc/pgx/v5"
@@ -43,10 +42,24 @@ func main() {
 		log.Fatalf("parse stops.txt failed: %v", err)
 	}
 
-	inserted, err := db.InsertStops(context.Background(), conn, stops)
+	_, err = db.InsertStops(context.Background(), conn, stops)
 	if err != nil {
 		log.Fatalf("insert stops failed: %v", err)
 	}
 
-	fmt.Printf("inserted %d stops\n", inserted)
+	routesData, err := gtfs.ReadFileFromZip(zr, "routes.txt")
+	if err != nil {
+		log.Fatalf("read routes.txt failed: %v", err)
+	}
+
+	routes, err := gtfs.ParseRouteFile(routesData)
+	if err != nil {
+		log.Fatalf("parse routes.txt failed: %v", err)
+	}
+
+	_, err = db.InsertRoutes(context.Background(), conn, routes)
+	if err != nil {
+		log.Fatalf("insert routes failed: %v", err)
+	}
+
 }
