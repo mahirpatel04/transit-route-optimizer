@@ -35,15 +35,16 @@ Phase 1 is fully closed out.
 
 ## Phase 2 — Migrate to Aurora Serverless
 
-- [ ] Provision an Aurora Serverless v2 (Postgres-compatible) cluster
-- [ ] Point `DATABASE_URL` at Aurora instead of local `docker-compose` Postgres; confirm `pgx` connects (Aurora Serverless v2 speaks the Postgres wire protocol, so this should be close to a config-only change)
-- [ ] Run existing `goose` migrations against Aurora
-- [ ] Decide how the ingest job reaches Aurora across environments (VPC networking: Lambda-in-VPC vs. Aurora Data API vs. RDS Proxy)
+- [x] Provision an Aurora Serverless v2 (Postgres-compatible) cluster — `transit-route-optimizer` cluster in `us-east-2`, min 0 / max 1 ACU, publicly accessible, inbound Postgres (5432) restricted to a single IP via the VPC's `default` security group
+- [x] Point `DATABASE_URL` at Aurora — kept local Docker Postgres for day-to-day dev rather than replacing it; added `.env.prod` (gitignored) holding the Aurora connection string alongside the existing `.env` for local dev, and added `-dev`/`-prod` variants of the relevant `make` targets (`migrate-dev`/`migrate-prod`, `ingest-dev`/`ingest-prod`) so either environment can be targeted explicitly
+- [x] Run existing `goose` migrations against Aurora — `make migrate-prod` applied `20260829233211_create_tables.sql` successfully; schema now matches local
+- [x] Run `make ingest-prod` to confirm the Go ingest job (fetch → parse → truncate/insert) works end-to-end against Aurora — confirmed, all 6 tables populated (verified via Postico)
+- [ ] Decide how the ingest job reaches Aurora once it moves into Lambda (Phase 3): VPC networking (Lambda-in-VPC) vs. Aurora Data API vs. RDS Proxy — today's IP-allowlisted public access only works for a human's laptop, not a Lambda function
 
 **Open decisions:**
 
-- Infra-as-code tool for provisioning (Terraform vs. AWS CDK vs. SAM/CloudFormation) — affects how Phase 3's Lambda is defined too, worth picking once for both
-- Secrets management for `DATABASE_URL`/credentials (Secrets Manager vs. SSM Parameter Store)
+- Infra-as-code tool for provisioning (Terraform vs. AWS CDK vs. SAM/CloudFormation) — the cluster above was created by hand via the RDS console, which is fine for one cluster but won't scale to Phase 3's Lambda + EventBridge + IAM resources; still worth picking one tool before Phase 3
+- Secrets management for `DATABASE_URL`/credentials — currently a local gitignored `.env.prod` file with a plaintext password; fine for solo local use, but Lambda (Phase 3) will need Secrets Manager or SSM Parameter Store since there's no laptop filesystem to read a `.env` from
 - Networking model for Lambda → Aurora (VPC + security groups vs. Data API)
 
 ## Phase 3 — Move ingestion to Lambda
@@ -75,4 +76,4 @@ Phase 1 is fully closed out.
 
 ## Suggested immediate next step
 
-Phase 1 is done. Start Phase 2: provision Aurora Serverless and settle its open decisions (IaC tool, secrets management, networking model).
+Phase 2 is functionally done (Aurora provisioned, migrated, and ingested into successfully). Settle Phase 2's remaining open decisions (IaC tool, secrets management, networking model) before starting Phase 3's Lambda work — those decisions shape how the Lambda handler, EventBridge schedule, and credentials are wired up.
