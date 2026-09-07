@@ -24,5 +24,4 @@ func Load() (*Config, error) {
 	return &Config{
 		DatabaseURL: databaseURL,
 	}, nil
-
 }
