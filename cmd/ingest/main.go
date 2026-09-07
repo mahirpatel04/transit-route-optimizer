@@ -25,7 +25,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	cfg, err := config.Load(ctx)
+	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config error: %w", err)
 	}

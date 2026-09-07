@@ -35,17 +35,12 @@ Phase 1 is fully closed out.
 
 ## Phase 2 — Migrate to Aurora Serverless
 
-- [x] Provision an Aurora Serverless v2 (Postgres-compatible) cluster — `transit-route-optimizer` cluster in `us-east-2`, min 0 / max 1 ACU, publicly accessible, inbound Postgres (5432) restricted to a single IP via the VPC's `default` security group
-- [x] Point `DATABASE_URL` at Aurora — kept local Docker Postgres for day-to-day dev rather than replacing it; added `.env.prod` (gitignored) holding the Aurora connection string alongside the existing `.env` for local dev, and added `-dev`/`-prod` variants of the relevant `make` targets (`migrate-dev`/`migrate-prod`, `ingest-dev`/`ingest-prod`) so either environment can be targeted explicitly
-- [x] Run existing `goose` migrations against Aurora — `make migrate-prod` applied `20260829233211_create_tables.sql` successfully; schema now matches local
-- [x] Run `make ingest-prod` to confirm the Go ingest job (fetch → parse → truncate/insert) works end-to-end against Aurora — confirmed, all 6 tables populated (verified via Postico)
+- [x] Provision an Aurora Serverless v2 (Postgres-compatible) cluster
+- [x] Point `DATABASE_URL` at Aurora — kept local Docker Postgres for day-to-day dev rather than replacing it; `.env.prod` (gitignored) holds the Aurora connection string alongside `.env` for local dev, with `-dev`/`-prod` variants of the relevant `make` targets (`migrate-dev`/`migrate-prod`, `ingest-dev`/`ingest-prod`)
+- [x] Run `goose` migrations against Aurora
+- [x] Confirm the Go ingest job (fetch → parse → truncate/insert) works end-to-end against Aurora — verified via Postico/psql row counts
 
-**Decisions made:**
-
-- Infra-as-code tool: **AWS CDK (Go)** — chosen over Terraform since Terraform proficiency needs modules/remote state/multi-env to be resume-worthy, which is more setup than this project justifies; CDK in Go doubles as more Go practice instead. The Aurora cluster above was created by hand via the RDS console and won't be retroactively imported into CDK — CDK starts with Phase 3's new resources (Lambda, EventBridge, IAM).
-
-- Secrets management: **AWS Secrets Manager, single secret** — one secret object holding all key-value pairs (db host, user, password, dbname, etc.) rather than one secret per value, since Secrets Manager bills per secret (~$0.40/month) regardless of how many keys it holds. Lambda (Phase 3) will fetch and assemble `DATABASE_URL` from this secret at cold start, replacing the local `.env.prod` file read.
-- Networking model: **Lambda-in-VPC**, keeping the existing `pgx`/`CopyFrom` wiring unchanged — no Data API rewrite needed. Watch for NAT gateway cost (~$32/month) if the Lambda also needs outbound internet access to fetch the GTFS zip from S3/its public URL.
+**Note:** this phase was originally done by hand via the RDS console with the cluster in `us-east-2`, and later fully superseded — see Phase 3, which rebuilt Aurora as a CDK-managed resource in `us-east-1` after discovering the GTFS feed's S3 bucket lives in `us-east-1` (see Phase 3's networking decision). The cluster clicked through here no longer exists; its replacement is defined in `infra/infra.go`.
 
 **Open decisions:** none remaining — Phase 2 is fully closed out.
 
@@ -53,33 +48,42 @@ Phase 1 is fully closed out.
 
 **Goal:** run the existing GTFS ingest job on a recurring schedule in AWS, without a human manually running `make ingest-prod`.
 
-**Decisions made:**
+**Decisions made (some superseding earlier Phase 2 decisions, per what actually worked):**
 
-- **Packaging:** container image, pushed to ECR, referenced by the Lambda function definition. Chosen over zip + custom runtime for simplicity with a Go binary (reuses the `dockerfile.goose`-style pattern already in this repo).
-- **Lambda granularity:** one Lambda function ingests all 6 GTFS files per invocation, matching today's `cmd/ingest/main.go` behavior exactly. No Step Functions / per-file Lambdas — the whole ingest run takes seconds and doesn't need parallelization or per-file failure isolation.
-- **Entrypoint:** no new `cmd/` directory. `cmd/ingest/main.go` gets a single new entrypoint that behaves as both a local CLI and a Lambda handler (see below), since Go disallows two `func main()` in one package and a second directory was ruled out to avoid unnecessary structure.
-- **Schedule:** EventBridge cron rule, weekly. Matches typical GTFS static feed republish cadence; avoids invoking daily for a feed that rarely changes.
-- **Alerting:** none beyond default Lambda → CloudWatch Logs. No CloudWatch Alarms/SNS — a personal project doesn't need paged alerting; logs are enough if something needs debugging.
-- **Secrets:** the single AWS Secrets Manager secret from Phase 2 holds all DB connection fields (host, user, password, dbname, port) as one JSON object. Lambda fetches and assembles `DATABASE_URL` from this secret at cold start, replacing the local `.env.prod` file read.
-- **Networking:** Lambda attaches to the same VPC as the Aurora cluster ("Lambda-in-VPC"), per the Phase 2 networking decision — keeps the existing `pgx`/`CopyFrom` Postgres wiring completely unchanged, no Aurora Data API rewrite. Tradeoff: the Lambda also needs outbound internet access to fetch the GTFS zip from its public URL, so a NAT Gateway is required while VPC-attached — that has its own ~$32/month cost, called out explicitly so it isn't a surprise on the AWS bill.
-- **IaC tool:** AWS CDK, in Go (Phase 2 decision). The existing Aurora cluster (created by hand via the RDS console) is *not* retroactively imported into CDK; CDK ownership starts with Phase 3's new resources (Lambda, EventBridge rule, IAM role, Secrets Manager secret).
+- **Packaging:** container image, pushed to ECR, referenced by the Lambda function definition (`dockerfile.lambda` at repo root, sibling to `dockerfile.goose`). The base image's default entrypoint expects a "handler name" argument (built for interpreted runtimes) — our Go binary implements the full Lambda Runtime API loop itself via `aws-lambda-go`, so `dockerfile.lambda` overrides `ENTRYPOINT` to run the compiled `bootstrap` binary directly.
+- **Lambda granularity:** one Lambda function ingests all 6 GTFS files per invocation, matching `cmd/ingest/main.go`'s existing behavior. No Step Functions / per-file Lambdas.
+- **Entrypoint:** no new `cmd/` directory. `cmd/ingest/main.go`'s `main()` extracts its body into `run(ctx) error`, then branches on `os.Getenv("AWS_LAMBDA_FUNCTION_NAME")` — set (Lambda) → `lambda.Start(run)`; unset (local dev) → call `run` directly and `log.Fatalf` on error, same as before. `make ingest-dev`/`make ingest-prod` are unaffected.
+- **Schedule:** EventBridge cron rule, weekly (`WeekDay: MON, Hour: 6, Minute: 0` UTC).
+- **Alerting:** none beyond default Lambda → CloudWatch Logs.
+- **Secrets — superseded:** originally planned as a single AWS Secrets Manager secret (Phase 2 decision). Dropped after deployment: a VPC-attached Lambda with no NAT can't reach Secrets Manager's public endpoint (its own separate networking problem from the S3 one below), and a Secrets Manager VPC interface endpoint costs ~$7-8/month — not worth it for a value with no rotation needs. **`DATABASE_URL` is instead passed as a plain Lambda environment variable** (AWS encrypts these at rest by default), built directly in `infra/infra.go` from the Aurora cluster's token-resolved hostname plus a `DB_MASTER_PASSWORD` value exported before `cdk deploy`/`cdk synth`. `internal/config.Load()` no longer branches on Lambda at all — it's back to the same single `godotenv`/`os.Getenv("DATABASE_URL")` path used locally, since Lambda now gets `DATABASE_URL` directly as an env var too.
+- **Networking — region moved after a real deploy failure:** Lambda is VPC-attached ("Lambda-in-VPC"), same as originally decided, keeping `pgx`/`CopyFrom` unchanged. The free-NAT-avoidance trick (an S3 gateway VPC endpoint, since the GTFS zip is hosted on S3) only works when the **VPC and the S3 bucket are in the same region** — first deploy put Aurora/Lambda in `us-east-2` while the GTFS bucket (`rrgtfsfeeds`) is in `us-east-1`, so the endpoint didn't cover that traffic and every invocation timed out fetching the zip. Fix: **moved everything to `us-east-1`** (Aurora, VPC, Lambda) rather than paying for a NAT Gateway (~$32/month) or NAT Instance (~$3-4/month) — $0 extra cost once same-region. `awslambda.DockerImageFunctionProps.AllowPublicSubnet` is set to `true` since CDK's default safety check doesn't know the S3-endpoint-only traffic pattern is fine without real internet access.
+- **IaC tool:** AWS CDK, in Go. **Scope changed from the original Phase 2 decision**: Aurora is no longer hand-created and excluded from CDK — since the region move required rebuilding it anyway, the Aurora cluster itself is now a CDK-managed resource (`awsrds.NewDatabaseCluster` in `infra/infra.go`), not just the Lambda/EventBridge/IAM pieces.
 
-**Design:**
+**Design (as actually built, in `infra/infra.go` + `dockerfile.lambda`):**
 
-1. **`cmd/ingest/main.go` — dual-mode entrypoint.** Today's `main()` body (connect → fetch/parse all 6 files → begin tx → truncate → insert all 6 → commit) is extracted into a `run(ctx context.Context) error` function, unchanged in behavior. The new `main()` checks `os.Getenv("AWS_LAMBDA_FUNCTION_NAME")` — if set (Lambda auto-sets this on every invocation), call `lambda.Start(func(ctx) error { return run(ctx) })`; if not (local dev), call `run(context.Background())` and `log.Fatalf` on error, same as today. Local dev (`make ingest-dev`/`make ingest-prod`) is completely unaffected since that env var is never set outside Lambda.
-2. **`internal/config.Load()` — Secrets Manager branch.** Same env var check decides the config source: unset → today's exact `godotenv.Load()` + `os.Getenv("DATABASE_URL")` path, untouched; set → fetch the secret (name passed via a Lambda environment variable, e.g. `DB_SECRET_ARN`, set by CDK) using `github.com/aws/aws-sdk-go-v2/service/secretsmanager`, and assemble the same `postgres://...` URL format from its `host`/`port`/`user`/`password`/`dbname` keys. `Config` struct and every caller of `Load()` stay unchanged.
-3. **Packaging — `Dockerfile.lambda`.** New file at repo root (sibling to `dockerfile.goose`). Multi-stage build: compile the Go binary statically, copy into an AWS-provided Lambda base image for Go, set the binary as the image's handler entrypoint per AWS's container-image Lambda contract.
-4. **Infrastructure — `infra/` (new top-level directory, CDK app in Go).** One stack: an ECR image asset (CDK's `DockerImageAsset`, built from `Dockerfile.lambda`, so no manual `docker push` step); the Secrets Manager secret (not auto-populated with the real password by CDK — set manually once via CLI/console after `cdk deploy`, same as the Aurora master password); the Lambda function (container image, attached to Aurora's VPC/security group, IAM role scoped to `secretsmanager:GetSecretValue` on just that one secret); an EventBridge rule (weekly cron, target = the Lambda). No API Gateway, no Step Functions.
+1. **`cmd/ingest/main.go` — dual-mode entrypoint**, as described above.
+2. **`internal/config.Load()`** — unchanged from its original local-dev form (see Phase 2/Phase 1); no Lambda-specific branch needed now that Secrets Manager was dropped.
+3. **`dockerfile.lambda`** — multi-stage build: `golang:1.27-alpine` compiles a static `bootstrap` binary (`GOOS=linux GOARCH=amd64`), copied into `public.ecr.aws/lambda/provided:al2023` with `ENTRYPOINT ["/var/task/bootstrap"]`. Named lowercase (not `Dockerfile.lambda`) to match this repo's existing `dockerfile.goose` convention — also worked around an intermittent Docker Desktop file-resolution issue specific to that exact mixed-case filename.
+4. **`.dockerignore`** (repo root, new) — excludes `.git`, `infra/cdk.out`, `infra/node_modules`, `docs`. Without this, `DockerImageCode_FromImageAsset("..")`'s build context recursively copied `infra/cdk.out` into itself (the very directory CDK stages that asset into), causing an `ENAMETOOLONG` crash on `cdk bootstrap`/`cdk synth`.
+5. **`infra/` (CDK app in Go)** — one stack (`infra/infra.go`):
+   - Imports the account's **default VPC** in whatever region `env()` targets (`us-east-1`).
+   - An **S3 gateway endpoint** on that VPC (free, same-region only — see networking decision above).
+   - Two security groups: one for Aurora, one for the Lambda; the Lambda's SG is granted ingress on 5432 into Aurora's SG. An optional `DEV_IP` env var, if set at deploy time, also opens 5432 to that one IP so a human can `psql` in directly — without it, only the Lambda can reach Aurora.
+   - **`awsrds.NewDatabaseCluster`**: Aurora Serverless v2 (`AuroraPostgresEngineVersion_VER_17_7`, `ServerlessV2MinCapacity: 0`, `ServerlessV2MaxCapacity: 1`), publicly accessible, credentials via `Credentials_FromPassword` using a `DB_MASTER_PASSWORD` env var (not Secrets Manager — see above), default database name `transit_optimizer`.
+   - `DATABASE_URL` is built via `fmt.Sprintf` combining the plain username/password (both `url.QueryEscape`'d — a `^` in the password broke the connection string twice before this was added) with the cluster's `ClusterEndpoint().Hostname()` **CDK token** — string concatenation with a token works because CDK detects the embedded token text and resolves it into a CloudFormation `Fn::Join` automatically wherever the resulting string is used as a resource prop.
+   - **`awslambda.NewDockerImageFunction`**: built from `dockerfile.lambda` via `DockerImageCode_FromImageAsset`, VPC-attached, `AllowPublicSubnet: true`, `DATABASE_URL` passed as a plain environment variable, 60s timeout, 512MB memory.
+   - **EventBridge rule**: weekly cron, target = the Lambda.
+   - A `CfnOutput` prints the Aurora endpoint after deploy, since it's otherwise only knowable via the console/CLI.
 
-**Testing plan:**
+**Testing (as actually done):**
 
-- Local: `run(ctx)` is already exercised via `make ingest-dev`/`make ingest-prod` — no regression expected since its logic is extracted, not rewritten.
-- Lambda: after `cdk deploy`, manually invoke via `aws lambda invoke` and confirm rows land in Aurora (same row-count check used for `make ingest-prod`).
-- EventBridge: confirm the rule appears in the console with the correct weekly cron expression and the Lambda as its target — a configuration review, not a live end-to-end trigger test.
+- Local: `run(ctx)` continues to work via `make ingest-dev`/`make ingest-prod` — confirmed no regression after the entrypoint refactor.
+- Lambda: manually invoked via the console **Test** button and via `aws lambda invoke` — iterated through three real failures before success (Secrets Manager unreachable from a VPC-attached Lambda with no NAT → dropped Secrets Manager for a plain env var; then a cross-region S3 timeout → moved everything to `us-east-1`; then an `invalid userinfo` URL-parse error from the `^` in the password not being escaped in `infra.go`'s `fmt.Sprintf` → added `url.QueryEscape`). After all three fixes, a manual invoke completed successfully and Aurora showed all 6 tables populated.
+- EventBridge: rule and cron expression confirmed via `cdk synth` output; not yet observed firing on its real weekly schedule (a configuration review, not a live trigger test).
 
-**Out of scope:** CloudWatch Alarms/SNS alerting; retrofitting the hand-created Aurora cluster into CDK; any changes to `internal/gtfs` or `internal/db`.
+**Out of scope:** CloudWatch Alarms/SNS alerting; a Secrets Manager VPC interface endpoint (rejected as not worth ~$7-8/month for a value with no rotation needs); any changes to `internal/gtfs` or `internal/db`.
 
-**Open decisions:** none remaining — ready to implement.
+**Open decisions:** none remaining — Phase 3 is functionally done. Housekeeping still worth doing: confirm the old `us-east-2` `InfraStack` and Aurora cluster are fully torn down (deletion was in progress via `aws cloudformation delete-stack` last checked), and consider whether `DEV_IP` should be re-exported on every future `cdk deploy` from a new network or handled some other way long-term.
 
 ## Phase 4 — Time-dependent A* routing
 
@@ -98,4 +102,4 @@ Phase 1 is fully closed out.
 
 ## Suggested immediate next step
 
-Phase 2 is fully done — Aurora provisioned/migrated/ingested, and all three open decisions (CDK in Go, single Secrets Manager secret, Lambda-in-VPC) are settled. Start Phase 3: adapt `cmd/ingest` into a Lambda handler.
+Phase 3 is functionally done — the Lambda successfully ingests into a CDK-managed Aurora cluster in `us-east-1`. Confirm the old `us-east-2` stack/cluster are fully torn down, then start Phase 4 (time-dependent A* routing).

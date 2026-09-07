@@ -1,0 +1,27 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# go.sum should be committed
+!go.sum
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+
+# Caches resolved VPC/subnet/account details from Vpc.FromLookup — regenerated
+# on demand, and not something to publish (contains your real AWS account ID).
+cdk.context.json
+
+# Compiled CDK app binary (produced by `go build`, not `go run` — this
+# directory's own name with no extension, easy to commit by accident)
+/infra
