@@ -59,7 +59,7 @@ Originally planned as a single Secrets Manager secret (cheaper than one-secret-p
 
 ## Infrastructure as code: CDK in Go, not Terraform
 
-Chosen partly for resume/learning value: meaningful Terraform proficiency needs modules, remote state, and multi-env setup to look like more than "used it once," which is disproportionate setup for this project's size. CDK in Go doubles as Go practice instead, using the same language as the application.
+Chosen over Terraform to keep the whole project in one language — application code and infrastructure definitions are both Go, sharing the same tooling (compiler, module system, editor support) rather than splitting the codebase across Go and HCL.
 
 Aurora itself was originally hand-clicked through the console (a deliberate Phase 2 choice, to learn the AWS console first) and later brought fully into CDK once a cross-region rebuild was needed anyway — so the whole stack (VPC lookups, security groups, Aurora cluster, Lambda, EventBridge rule) is now one CDK stack (`infra/infra.go`), reproducible via `cdk deploy` / destroyable via `cdk destroy`.
 
