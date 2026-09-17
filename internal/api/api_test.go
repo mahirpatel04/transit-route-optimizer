@@ -33,7 +33,7 @@ func testServer(t *testing.T) (*httptest.Server, *pgx.Conn) {
 		t.Fatalf("truncate: %v", err)
 	}
 
-	srv := httptest.NewServer(NewMux(conn))
+	srv := httptest.NewServer(NewMux(conn, nil))
 	t.Cleanup(func() {
 		srv.Close()
 		conn.Close(ctx)

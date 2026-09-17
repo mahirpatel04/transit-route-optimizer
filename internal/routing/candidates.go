@@ -24,3 +24,10 @@ func nearestStops(stops []gtfs.Stop, lat, lon float64, n int) []gtfs.Stop {
 	}
 	return sorted
 }
+
+// NearestStops is the exported form of nearestStops for callers outside
+// this package (e.g. internal/api) that need to resolve a geocoded point
+// to its nearest candidate subway stops before calling FindRoute.
+func NearestStops(stops []gtfs.Stop, lat, lon float64, n int) []gtfs.Stop {
+	return nearestStops(stops, lat, lon, n)
+}
