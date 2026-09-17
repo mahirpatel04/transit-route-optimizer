@@ -8,6 +8,7 @@ export default function App() {
     <div className="app">
       <Header />
       <main>
+        <h1>NYC Transit</h1>
         <RoutesButton />
         <StopsNearForm />
       </main>
