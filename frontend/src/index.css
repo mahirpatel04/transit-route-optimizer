@@ -1,0 +1,14 @@
+:root {
+  color-scheme: light dark;
+  font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
