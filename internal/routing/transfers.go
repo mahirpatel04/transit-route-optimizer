@@ -25,13 +25,16 @@ func transferNeighbors(ctx context.Context, conn *pgx.Conn, stopID string) ([]tr
 	sameParentRows, err := conn.Query(ctx, `
 		SELECT s2.stop_id
 		FROM stops s1
-		JOIN stops s2 ON s2.parent_station = s1.parent_station AND s2.stop_id != s1.stop_id
-		WHERE s1.stop_id = $1 AND s1.parent_station IS NOT NULL
+		JOIN stops s2 ON s2.parent_station = COALESCE(s1.parent_station, s1.stop_id) AND s2.stop_id != s1.stop_id
+		WHERE s1.stop_id = $1
 	`, stopID)
-	// Deliberately no fallback here for when stopID is itself a parent
-	// station (e.g. "127", which has no siblings under this query) — a
-	// parent station's own child platforms are not "the same stop," so it
-	// correctly returns no same-parent_station transfers in that case.
+	// COALESCE handles stopID itself being a parent station (parent_station
+	// IS NULL, e.g. "R20") by comparing against its own stop_id instead, so
+	// a parent station correctly connects to its own child platforms for
+	// free (a cross-line transfer that lands on a bare parent station must
+	// be able to board any of that complex's platforms) — this is a no-op
+	// for child-platform callers, which still only match same-parent
+	// siblings as before.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query same-parent_station transfers for %s: %w", stopID, err)
 	}

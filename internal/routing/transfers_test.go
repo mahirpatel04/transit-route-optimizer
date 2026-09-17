@@ -55,3 +55,29 @@ func TestTransferNeighbors_SameStopNameDifferentParentCosts180s(t *testing.T) {
 		t.Fatal("expected 902 to appear as a same-stop_name cross-line transfer from 127")
 	}
 }
+
+func TestTransferNeighbors_ParentStationConnectsToItsOwnChildren(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	// R20 is a bare parent station (Union Square's N/Q/R/W platforms).
+	// Arriving here via a cross-line transfer must be able to reach its
+	// own child platforms for free, or the transfer is a dead end.
+	transfers, err := transferNeighbors(ctx, conn, "R20")
+	if err != nil {
+		t.Fatalf("transferNeighbors: %v", err)
+	}
+
+	found := false
+	for _, tr := range transfers {
+		if tr.StopID == "R20N" || tr.StopID == "R20S" {
+			found = true
+			if tr.Cost != 0 {
+				t.Errorf("expected 0 cost from a parent station to its own child platform %s, got %v", tr.StopID, tr.Cost)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected R20 to connect to at least one of its own child platforms (R20N/R20S)")
+	}
+}

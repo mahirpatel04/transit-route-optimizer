@@ -65,7 +65,7 @@ func TestFindRoute_UnionSquareToTimesSquare(t *testing.T) {
 	if len(route.Legs) == 0 {
 		t.Fatal("expected at least one leg")
 	}
-	if route.TotalTime <= 0 || route.TotalTime > 1*time.Hour {
+	if route.TotalTime <= 0 || route.TotalTime > 20*time.Minute {
 		t.Errorf("expected a same-borough trip (Union Sq to Times Sq), got %v", route.TotalTime)
 	}
 }
