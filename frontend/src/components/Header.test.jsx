@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe('Header', () => {
-  it('shows the last fetch time on success', async () => {
+  it('shows the last fetch time on success, with the full timestamp available on hover', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ last_fetch_time: '2026-09-17T18:00:28Z' }),
@@ -16,7 +16,7 @@ describe('Header', () => {
     render(<Header />);
 
     await waitFor(() => {
-      expect(screen.getByText(/2026-09-17T18:00:28Z/)).toBeInTheDocument();
+      expect(screen.getByTitle('2026-09-17T18:00:28Z')).toBeInTheDocument();
     });
   });
 

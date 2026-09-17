@@ -5,6 +5,7 @@ import StopsNearForm from './StopsNearForm';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete global.navigator.geolocation;
 });
 
 describe('StopsNearForm', () => {
@@ -66,5 +67,48 @@ describe('StopsNearForm', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/network error/i);
     });
+  });
+
+  it('shows an empty state when no stops are found', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+    }));
+
+    render(<StopsNearForm />);
+    await userEvent.type(screen.getByLabelText(/latitude/i), '40.758');
+    await userEvent.type(screen.getByLabelText(/longitude/i), '-73.9855');
+    await userEvent.click(screen.getByRole('button', { name: /find nearby stops/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/no stops found/i)).toBeInTheDocument();
+    });
+  });
+
+  it('fills lat/lon from the browser geolocation API', async () => {
+    global.navigator.geolocation = {
+      getCurrentPosition: vi.fn((success) => {
+        success({ coords: { latitude: 40.758, longitude: -73.9855 } });
+      }),
+    };
+
+    render(<StopsNearForm />);
+    await userEvent.click(screen.getByRole('button', { name: /use my location/i }));
+
+    expect(screen.getByLabelText(/latitude/i)).toHaveValue(40.758);
+    expect(screen.getByLabelText(/longitude/i)).toHaveValue(-73.9855);
+  });
+
+  it('shows an inline error when geolocation is denied', async () => {
+    global.navigator.geolocation = {
+      getCurrentPosition: vi.fn((_success, error) => {
+        error(new Error('denied'));
+      }),
+    };
+
+    render(<StopsNearForm />);
+    await userEvent.click(screen.getByRole('button', { name: /use my location/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not get your location/i);
   });
 });
