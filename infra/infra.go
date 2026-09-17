@@ -124,8 +124,13 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Environment: &map[string]*string{
 			"DATABASE_URL": jsii.String(databaseURL),
 		},
-		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
-		MemorySize: jsii.Number(512),
+		Timeout:                      awscdk.Duration_Seconds(jsii.Number(60)),
+		MemorySize:                   jsii.Number(512),
+		ReservedConcurrentExecutions: jsii.Number(5),
+	})
+
+	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
+		AuthType: awslambda.FunctionUrlAuthType_NONE,
 	})
 
 	// GTFS static feeds republish on the agency's own cadence (days to weeks),
@@ -141,6 +146,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 
 	awscdk.NewCfnOutput(stack, jsii.String("AuroraEndpoint"), &awscdk.CfnOutputProps{
 		Value: cluster.ClusterEndpoint().Hostname(),
+	})
+
+	awscdk.NewCfnOutput(stack, jsii.String("ApiUrl"), &awscdk.CfnOutputProps{
+		Value: fnUrl.Url(),
 	})
 
 	return stack
