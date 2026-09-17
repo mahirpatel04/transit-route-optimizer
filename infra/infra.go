@@ -71,7 +71,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		auroraSecurityGroup.AddIngressRule(
 			awsec2.Peer_Ipv4(jsii.String(devIP+"/32")),
 			awsec2.Port_Tcp(jsii.Number(5432)),
-			jsii.String("Allow a developer's laptop to reach Aurora"),
+			jsii.String("Allow a developer laptop to reach Aurora"),
 			jsii.Bool(false),
 		)
 	}
