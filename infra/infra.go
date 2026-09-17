@@ -126,11 +126,13 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		},
 		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
 		MemorySize: jsii.Number(512),
-		// Shared between the weekly cron invocation and public HTTP traffic on this same
-		// Lambda: a burst of public requests could occupy all 5 slots and throttle that
-		// week's cron run. Acceptable trade-off — EventBridge retries async invocations,
-		// so a throttled cron run is delayed, not lost.
-		ReservedConcurrentExecutions: jsii.Number(5),
+		// No ReservedConcurrentExecutions cap: this AWS account's total Lambda
+		// concurrency limit is only 10 (aws lambda get-account-settings), and AWS
+		// requires at least 10 stay unreserved account-wide — so reserving any
+		// amount for this function isn't possible without first requesting an AWS
+		// service quota increase. Public HTTP traffic and the weekly cron run
+		// currently share the account's full unreserved pool with no per-function
+		// cap; revisit once the quota is raised.
 	})
 
 	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
