@@ -27,6 +27,8 @@ go.work.sum
 # env file
 .env
 .env.prod
+# frontend/.env holds no secrets (Vite build-time config) and is meant to be committed
+!frontend/.env
 
 # Editor/IDE
 # .idea/
