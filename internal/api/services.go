@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -80,7 +81,7 @@ func handleStopsNear(conn *pgx.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lat, latErr := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 		lon, lonErr := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
-		if latErr != nil || lonErr != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		if latErr != nil || lonErr != nil || math.IsNaN(lat) || math.IsNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
 			writeError(w, http.StatusBadRequest, "invalid or missing lat/lon")
 			return
 		}

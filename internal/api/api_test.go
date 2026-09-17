@@ -126,6 +126,19 @@ func TestHandleStopsNear_OutOfRangeLatLon(t *testing.T) {
 	}
 }
 
+func TestHandleStopsNear_NaNLatLon(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, err := http.Get(srv.URL + "/stops/near?lat=NaN&lon=NaN")
+	if err != nil {
+		t.Fatalf("GET /stops/near: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestHandleStopsNear_ReturnsSortedByDistance(t *testing.T) {
 	srv, conn := testServer(t)
 	ctx := context.Background()
