@@ -160,13 +160,11 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Code: awslambda.DockerImageCode_FromImageAsset(jsii.String(".."), &awslambda.AssetImageCodeProps{
 			File: jsii.String("dockerfile.lambda"),
 		}),
-		Vpc:            vpc,
-		VpcSubnets:     &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
+		Vpc: vpc,
+		VpcSubnets: &awsec2.SubnetSelection{
+			Subnets: &[]awsec2.ISubnet{privateSubnet},
+		},
 		SecurityGroups: &[]awsec2.ISecurityGroup{lambdaSecurityGroup},
-		// The only "internet" resource this Lambda needs is the GTFS zip on S3,
-		// reachable via the S3 gateway endpoint above without a NAT Gateway/Instance.
-		// CDK's default safety check doesn't know that, so this is explicit.
-		AllowPublicSubnet: jsii.Bool(true),
 		Environment: &map[string]*string{
 			"DATABASE_URL": jsii.String(databaseURL),
 		},
