@@ -51,6 +51,52 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
 	})
 
+	// New private subnet for the ingest Lambda's outbound-internet-needing
+	// path (geocoding). 172.31.96.0/24 is verified free — the default VPC's
+	// 172.31.0.0/16 only has 172.31.0.0/20 through 172.31.80.0/20 allocated
+	// across its 6 existing (all-public) subnets.
+	privateSubnet := awsec2.NewPrivateSubnet(stack, jsii.String("GeocodePrivateSubnet"), &awsec2.PrivateSubnetProps{
+		VpcId:            vpc.VpcId(),
+		AvailabilityZone: jsii.String("us-east-1a"),
+		CidrBlock:        jsii.String("172.31.96.0/24"),
+	})
+
+	natSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("NatInstanceSecurityGroup"), &awsec2.SecurityGroupProps{
+		Vpc:              vpc,
+		AllowAllOutbound: jsii.Bool(true),
+		Description:      jsii.String("Security group for the NAT instance"),
+	})
+	natSecurityGroup.AddIngressRule(
+		awsec2.Peer_Ipv4(jsii.String("172.31.96.0/24")),
+		awsec2.Port_AllTraffic(),
+		jsii.String("Allow all traffic from the private subnet to be NATed"),
+		jsii.Bool(false),
+	)
+
+	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstance"), &awsec2.InstanceProps{
+		Vpc: vpc,
+		VpcSubnets: &awsec2.SubnetSelection{
+			SubnetType: awsec2.SubnetType_PUBLIC,
+		},
+		InstanceType:    awsec2.InstanceType_Of(awsec2.InstanceClass_T4G, awsec2.InstanceSize_NANO),
+		MachineImage:    awsec2.MachineImage_LatestAmazonLinux2023(&awsec2.AmazonLinux2023ImageSsmParameterProps{}),
+		SecurityGroup:   natSecurityGroup,
+		SourceDestCheck: jsii.Bool(false),
+		UserData:        awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{}),
+	})
+	natInstance.UserData().AddCommands(
+		jsii.String("sysctl -w net.ipv4.ip_forward=1"),
+		jsii.String("echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf"),
+		jsii.String("iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"),
+		jsii.String("iptables-save > /etc/sysconfig/iptables"),
+	)
+
+	awsec2.NewCfnRoute(stack, jsii.String("PrivateSubnetNatRoute"), &awsec2.CfnRouteProps{
+		RouteTableId:         privateSubnet.RouteTable().RouteTableId(),
+		DestinationCidrBlock: jsii.String("0.0.0.0/0"),
+		InstanceId:           natInstance.InstanceId(),
+	})
+
 	auroraSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("AuroraSecurityGroup"), &awsec2.SecurityGroupProps{
 		Vpc:              vpc,
 		AllowAllOutbound: jsii.Bool(true),
