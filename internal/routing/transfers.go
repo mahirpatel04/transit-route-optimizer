@@ -74,7 +74,7 @@ func transferNeighbors(ctx context.Context, conn *pgx.Conn, stopID string) ([]tr
 		if err := crossLineRows.Scan(&otherParentStation, &s1Lat, &s1Lon, &s2Lat, &s2Lon); err != nil {
 			return nil, fmt.Errorf("failed to scan cross-line transfer: %w", err)
 		}
-		if geo.Haversine(s1Lat, s1Lon, s2Lat, s2Lon) > 400 {
+		if geo.Haversine(s1Lat, s1Lon, s2Lat, s2Lon) > 250 {
 			continue // different physical complex despite sharing a stop_name
 		}
 		transfers = append(transfers, transfer{StopID: otherParentStation, Cost: crossLineTransferCost})
