@@ -137,6 +137,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 
 	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
 		AuthType: awslambda.FunctionUrlAuthType_NONE,
+		Cors: &awslambda.FunctionUrlCorsOptions{
+			AllowedOrigins: &[]*string{jsii.String("https://mahirpatel04.github.io")},
+			AllowedMethods: &[]awslambda.HttpMethod{awslambda.HttpMethod_GET},
+		},
 	})
 
 	// GTFS static feeds republish on the agency's own cadence (days to weeks),
