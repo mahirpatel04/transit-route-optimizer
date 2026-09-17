@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,14 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/db"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
+
+func isCronEvent(raw json.RawMessage) bool {
+	var probe struct {
+		Source string `json:"source"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	return probe.Source == "aws.events"
+}
 
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
