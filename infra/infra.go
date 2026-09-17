@@ -124,8 +124,12 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Environment: &map[string]*string{
 			"DATABASE_URL": jsii.String(databaseURL),
 		},
-		Timeout:                      awscdk.Duration_Seconds(jsii.Number(60)),
-		MemorySize:                   jsii.Number(512),
+		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
+		MemorySize: jsii.Number(512),
+		// Shared between the weekly cron invocation and public HTTP traffic on this same
+		// Lambda: a burst of public requests could occupy all 5 slots and throttle that
+		// week's cron run. Acceptable trade-off — EventBridge retries async invocations,
+		// so a throttled cron run is delayed, not lost.
 		ReservedConcurrentExecutions: jsii.Number(5),
 	})
 

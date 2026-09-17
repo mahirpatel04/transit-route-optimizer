@@ -88,12 +88,15 @@ func TestHandleRoutes(t *testing.T) {
 		t.Fatalf("got status %d, want 200", resp.StatusCode)
 	}
 
-	var got []gtfs.Route
+	var got []routeResult
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(got) != 1 || got[0].RouteId != "A" {
 		t.Errorf("got %+v, want one route with id A", got)
+	}
+	if got[0].RouteName != "8th Avenue Express" {
+		t.Errorf("got route_name %q, want %q", got[0].RouteName, "8th Avenue Express")
 	}
 }
 
@@ -101,6 +104,19 @@ func TestHandleStopsNear_MissingLatLon(t *testing.T) {
 	srv, _ := testServer(t)
 
 	resp, err := http.Get(srv.URL + "/stops/near")
+	if err != nil {
+		t.Fatalf("GET /stops/near: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHandleStopsNear_OutOfRangeLatLon(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, err := http.Get(srv.URL + "/stops/near?lat=999&lon=0")
 	if err != nil {
 		t.Fatalf("GET /stops/near: %v", err)
 	}

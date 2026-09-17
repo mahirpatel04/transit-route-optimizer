@@ -26,6 +26,12 @@ type stopNearResult struct {
 	DistanceMeters float64 `json:"distance_meters"`
 }
 
+type routeResult struct {
+	RouteId   string `json:"route_id"`
+	RouteName string `json:"route_name"`
+	RouteType int    `json:"route_type"`
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -58,7 +64,15 @@ func handleRoutes(conn *pgx.Conn) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
-		writeJSON(w, http.StatusOK, routes)
+		results := make([]routeResult, len(routes))
+		for i, route := range routes {
+			results[i] = routeResult{
+				RouteId:   route.RouteId,
+				RouteName: route.RouteName,
+				RouteType: route.RouteType,
+			}
+		}
+		writeJSON(w, http.StatusOK, results)
 	}
 }
 
@@ -66,7 +80,7 @@ func handleStopsNear(conn *pgx.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lat, latErr := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 		lon, lonErr := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
-		if latErr != nil || lonErr != nil {
+		if latErr != nil || lonErr != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
 			writeError(w, http.StatusBadRequest, "invalid or missing lat/lon")
 			return
 		}

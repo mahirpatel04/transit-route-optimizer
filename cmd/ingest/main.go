@@ -44,7 +44,12 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	var req events.APIGatewayV2HTTPRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
-		return nil, fmt.Errorf("failed to parse HTTP request event: %w", err)
+		log.Printf("handler: failed to parse HTTP request event: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
 	}
 
 	cfg, err := config.Load()
