@@ -49,12 +49,22 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, fmt.Errorf("config error: %w", err)
+		log.Printf("handler: config error: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
 	}
 
 	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %w", err)
+		log.Printf("handler: unable to connect to database: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
 	}
 	defer conn.Close(ctx)
 
