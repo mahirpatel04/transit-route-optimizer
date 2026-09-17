@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/aws/aws-lambda-go v1.55.0
+	github.com/awslabs/aws-lambda-go-api-proxy v0.16.2
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 )

@@ -2,27 +2,78 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 	"github.com/jackc/pgx/v5"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/api"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/config"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/db"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
 
+func isCronEvent(raw json.RawMessage) bool {
+	var probe struct {
+		Source string `json:"source"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	return probe.Source == "aws.events"
+}
+
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
-		lambda.Start(run)
+		lambda.Start(handler)
 		return
 	}
 
 	if err := run(context.Background()); err != nil {
 		log.Fatalf("ingest failed: %v", err)
 	}
+}
+
+func handler(ctx context.Context, raw json.RawMessage) (any, error) {
+	if isCronEvent(raw) {
+		return nil, run(ctx)
+	}
+
+	var req events.APIGatewayV2HTTPRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		log.Printf("handler: failed to parse HTTP request event: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("handler: config error: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+
+	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Printf("handler: unable to connect to database: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+	defer conn.Close(ctx)
+
+	return httpadapter.NewV2(api.NewMux(conn)).ProxyWithContext(ctx, req)
 }
 
 func run(ctx context.Context) error {

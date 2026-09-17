@@ -15,6 +15,8 @@ import (
 type db interface {
 	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func TruncateAll(ctx context.Context, conn db) error {
@@ -38,6 +40,61 @@ func SetLastFetchTime(ctx context.Context, conn db, t time.Time) error {
 	}
 
 	return nil
+}
+
+func GetLastFetchTime(ctx context.Context, conn db) (time.Time, error) {
+	var t time.Time
+	err := conn.QueryRow(ctx, "SELECT last_fetch_time FROM ingest_state WHERE id = 1").Scan(&t)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get last fetch time: %w", err)
+	}
+	return t, nil
+}
+
+func GetRoutes(ctx context.Context, conn db) ([]gtfs.Route, error) {
+	rows, err := conn.Query(ctx, "SELECT route_id, route_name, route_type FROM routes")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query routes: %w", err)
+	}
+	defer rows.Close()
+
+	var routes []gtfs.Route
+	for rows.Next() {
+		var r gtfs.Route
+		if err := rows.Scan(&r.RouteId, &r.RouteName, &r.RouteType); err != nil {
+			return nil, fmt.Errorf("failed to scan route: %w", err)
+		}
+		routes = append(routes, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed reading routes: %w", err)
+	}
+	return routes, nil
+}
+
+func GetAllStops(ctx context.Context, conn db) ([]gtfs.Stop, error) {
+	rows, err := conn.Query(ctx, "SELECT stop_id, stop_name, lat, lon, parent_station FROM stops")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stops: %w", err)
+	}
+	defer rows.Close()
+
+	var stops []gtfs.Stop
+	for rows.Next() {
+		var s gtfs.Stop
+		var parentStation *string
+		if err := rows.Scan(&s.StopId, &s.StopName, &s.Lat, &s.Lon, &parentStation); err != nil {
+			return nil, fmt.Errorf("failed to scan stop: %w", err)
+		}
+		if parentStation != nil {
+			s.ParentStation = *parentStation
+		}
+		stops = append(stops, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed reading stops: %w", err)
+	}
+	return stops, nil
 }
 
 func InsertStops(ctx context.Context, conn db, stops []gtfs.Stop) (int64, error) {

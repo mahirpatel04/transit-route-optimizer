@@ -71,7 +71,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		auroraSecurityGroup.AddIngressRule(
 			awsec2.Peer_Ipv4(jsii.String(devIP+"/32")),
 			awsec2.Port_Tcp(jsii.Number(5432)),
-			jsii.String("Allow a developer's laptop to reach Aurora"),
+			jsii.String("Allow a developer laptop to reach Aurora"),
 			jsii.Bool(false),
 		)
 	}
@@ -126,6 +126,17 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		},
 		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
 		MemorySize: jsii.Number(512),
+		// No ReservedConcurrentExecutions cap: this AWS account's total Lambda
+		// concurrency limit is only 10 (aws lambda get-account-settings), and AWS
+		// requires at least 10 stay unreserved account-wide — so reserving any
+		// amount for this function isn't possible without first requesting an AWS
+		// service quota increase. Public HTTP traffic and the weekly cron run
+		// currently share the account's full unreserved pool with no per-function
+		// cap; revisit once the quota is raised.
+	})
+
+	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
+		AuthType: awslambda.FunctionUrlAuthType_NONE,
 	})
 
 	// GTFS static feeds republish on the agency's own cadence (days to weeks),
@@ -141,6 +152,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 
 	awscdk.NewCfnOutput(stack, jsii.String("AuroraEndpoint"), &awscdk.CfnOutputProps{
 		Value: cluster.ClusterEndpoint().Hostname(),
+	})
+
+	awscdk.NewCfnOutput(stack, jsii.String("ApiUrl"), &awscdk.CfnOutputProps{
+		Value: fnUrl.Url(),
 	})
 
 	return stack
