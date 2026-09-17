@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultStopsLimit = 10
-	maxStopsLimit      = 50
+	maxStopsLimit     = 50
 )
 
 type stopNearResult struct {
@@ -35,11 +35,7 @@ func handleStopsNear(conn *pgx.Conn) http.HandlerFunc {
 
 		limit := defaultStopsLimit
 		if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
-			if l > maxStopsLimit {
-				limit = maxStopsLimit
-			} else {
-				limit = l
-			}
+			limit = min(l, maxStopsLimit)
 		}
 
 		stops, err := db.GetAllStops(r.Context(), conn)
