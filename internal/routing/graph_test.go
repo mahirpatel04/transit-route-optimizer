@@ -11,9 +11,9 @@ func TestExpand_ReturnsTransitAndTransferEdges(t *testing.T) {
 	ctx := context.Background()
 
 	// A Wednesday, 8am — well within normal NYC subway service hours.
-	at := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+	at := testWeekday(t, conn)
 
-	edges, err := expand(ctx, conn, "127N", at)
+	edges, err := expand(ctx, conn, "127N", at, map[time.Time][]string{})
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
@@ -52,20 +52,60 @@ func TestExpand_HandlesPostMidnightRollover(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	// 1:15 AM on a Thursday: trips still running from Wednesday's service
-	// (GTFS time >= 24:00:00) must be considered, not just Thursday's own
-	// early-morning trips.
-	at := time.Date(2026, 9, 17, 1, 15, 0, 0, time.UTC)
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
 
-	edges, err := expand(ctx, conn, "127N", at)
+	weekday := testWeekday(t, conn)
+	nextDay := weekday.AddDate(0, 0, 1)
+
+	// 1:15 AM local time on the day after our test weekday: trips still
+	// running from the previous day's service (GTFS time >= 24:00:00) must
+	// be considered, not just that day's own early-morning trips.
+	at := time.Date(nextDay.Year(), nextDay.Month(), nextDay.Day(), 1, 15, 0, 0, loc)
+
+	edges, err := expand(ctx, conn, "127N", at, map[time.Time][]string{})
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
-	// This is a smoke check, not a strict assertion on count: late-night
-	// NYC subway service is real but sparse. The key behavior under test
-	// is that expand() doesn't error and doesn't limit itself to only
-	// Thursday's calendar — verified more precisely by service_days_test.go
-	// and queries_test.go. Here we just confirm no edges are silently
-	// dropped due to a rollover bug causing a query error.
-	_ = edges
+
+	// At least one ride edge should come from the PREVIOUS calendar day's
+	// service still running past midnight (GTFS time >= 24:00:00) — if
+	// rollover handling were broken or deleted, only the literal day's own
+	// (sparse, early-morning) service would be considered. A rolled-over
+	// trip's real-world DepartAt naturally falls on the *next* calendar day
+	// in local wall-clock terms (that's what "past midnight" means), so we
+	// check it against the previous day's midnight using a >= 24h GTFS
+	// offset rather than comparing calendar days directly.
+	sawPreviousDayEdge := false
+	previousDayMidnight := time.Date(weekday.Year(), weekday.Month(), weekday.Day(), 0, 0, 0, 0, loc)
+	for _, e := range edges {
+		if e.Kind == edgeKindRide && e.DepartAt.Sub(previousDayMidnight) >= 24*time.Hour {
+			sawPreviousDayEdge = true
+			break
+		}
+	}
+	if !sawPreviousDayEdge {
+		t.Error("expected at least one ride edge using the previous day's rolled-over service (GTFS time >= 24:00:00)")
+	}
+}
+
+func TestServiceWindowsFor_ConvertsToAgencyTimezone(t *testing.T) {
+	// 2026-09-17 02:00 UTC is 2026-09-16 22:00 America/New_York (EDT, UTC-4).
+	// A buggy implementation that treats this as UTC would compute the
+	// wrong calendar date and time-of-day entirely.
+	at := time.Date(2026, 9, 17, 2, 0, 0, 0, time.UTC)
+
+	windows := serviceWindowsFor(at)
+
+	loc, _ := time.LoadLocation("America/New_York")
+	wantDate := time.Date(2026, 9, 16, 0, 0, 0, 0, loc)
+	if !windows[0].date.Equal(wantDate) {
+		t.Errorf("expected window 0 date %v, got %v", wantDate, windows[0].date)
+	}
+	wantTimeOfDay := 22 * time.Hour
+	if windows[0].gtfsTimeFrom != wantTimeOfDay {
+		t.Errorf("expected window 0 time-of-day %v, got %v", wantTimeOfDay, windows[0].gtfsTimeFrom)
+	}
 }

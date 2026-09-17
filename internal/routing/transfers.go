@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/geo"
 )
 
 const crossLineTransferCost = 180 * time.Second
@@ -56,7 +57,7 @@ func transferNeighbors(ctx context.Context, conn *pgx.Conn, stopID string) ([]tr
 	// IS NULL, e.g. "127") by comparing against its own stop_id instead —
 	// so this works whether stopID is a child platform or a parent station.
 	crossLineRows, err := conn.Query(ctx, `
-		SELECT DISTINCT s2.parent_station
+		SELECT DISTINCT s2.parent_station, s1.lat, s1.lon, s2.lat, s2.lon
 		FROM stops s1
 		JOIN stops s2 ON s2.stop_name = s1.stop_name
 		         AND s2.parent_station IS NOT NULL
@@ -69,8 +70,12 @@ func transferNeighbors(ctx context.Context, conn *pgx.Conn, stopID string) ([]tr
 	defer crossLineRows.Close()
 	for crossLineRows.Next() {
 		var otherParentStation string
-		if err := crossLineRows.Scan(&otherParentStation); err != nil {
+		var s1Lat, s1Lon, s2Lat, s2Lon float64
+		if err := crossLineRows.Scan(&otherParentStation, &s1Lat, &s1Lon, &s2Lat, &s2Lon); err != nil {
 			return nil, fmt.Errorf("failed to scan cross-line transfer: %w", err)
+		}
+		if geo.Haversine(s1Lat, s1Lon, s2Lat, s2Lon) > 400 {
+			continue // different physical complex despite sharing a stop_name
 		}
 		transfers = append(transfers, transfer{StopID: otherParentStation, Cost: crossLineTransferCost})
 	}

@@ -10,7 +10,7 @@ func TestNextDeparturesByRoute_FindsAtLeastOneRoute(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	serviceIDs, err := activeServiceIDs(ctx, conn, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC))
+	serviceIDs, err := activeServiceIDs(ctx, conn, testWeekday(t, conn))
 	if err != nil {
 		t.Fatalf("activeServiceIDs: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestNextStopOnTrip_FindsTheNextStop(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	serviceIDs, err := activeServiceIDs(ctx, conn, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC))
+	serviceIDs, err := activeServiceIDs(ctx, conn, testWeekday(t, conn))
 	if err != nil {
 		t.Fatalf("activeServiceIDs: %v", err)
 	}
@@ -79,14 +79,8 @@ func TestNextStopOnTrip_EndOfTripReturnsFalse(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	// stop_sequence 999999 can't exist on any real trip.
-	candidates, err := nextDeparturesByRoute(ctx, conn, "127N", 8*time.Hour, []string{})
-	_ = candidates
-	if err != nil {
-		t.Fatalf("nextDeparturesByRoute: %v", err)
-	}
-
-	// Directly probe a made-up trip id past any real sequence.
+	// Directly probe a made-up trip id past any real sequence
+	// (stop_sequence 999999 can't exist on any real trip).
 	_, ok, err := nextStopOnTrip(ctx, conn, "no-such-trip-id", 999999)
 	if err != nil {
 		t.Fatalf("nextStopOnTrip: %v", err)

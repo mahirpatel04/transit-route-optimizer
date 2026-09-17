@@ -30,12 +30,21 @@ type serviceWindow struct {
 	gtfsTimeFrom time.Duration
 }
 
+const agencyTimezone = "America/New_York" // NYC subway; would come from agency.txt in a multi-agency system
+
 // serviceWindowsFor returns the two service-day windows that must be
 // checked for real time `at`: the literal calendar day, and the previous
-// calendar day's post-midnight (>=24:00:00) continuation.
+// calendar day's post-midnight (>=24:00:00) continuation. GTFS schedule
+// times are in the transit agency's local timezone, so `at` is converted
+// into that zone before any date/time-of-day decomposition.
 func serviceWindowsFor(at time.Time) [2]serviceWindow {
-	dayStart := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
-	timeOfDay := at.Sub(dayStart)
+	loc, err := time.LoadLocation(agencyTimezone)
+	if err != nil {
+		loc = time.UTC // extremely unlikely on any real deployment; fail safe rather than panic
+	}
+	localAt := at.In(loc)
+	dayStart := time.Date(localAt.Year(), localAt.Month(), localAt.Day(), 0, 0, 0, 0, loc)
+	timeOfDay := localAt.Sub(dayStart)
 
 	return [2]serviceWindow{
 		{date: dayStart, gtfsTimeFrom: timeOfDay},
@@ -45,14 +54,22 @@ func serviceWindowsFor(at time.Time) [2]serviceWindow {
 
 // expand returns every edge reachable from stopID starting at real time
 // `at`: one ride edge per route (earliest trip after `at`, to its next
-// stop), plus transfer edges within the station complex.
-func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time) ([]edge, error) {
+// stop), plus transfer edges within the station complex. serviceIDCache
+// memoizes activeServiceIDs results by calendar date across the many expand
+// calls made within a single FindRoute search, since the answer is
+// identical for every expansion within that search.
+func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time, serviceIDCache map[time.Time][]string) ([]edge, error) {
 	var edges []edge
 
 	for _, w := range serviceWindowsFor(at) {
-		serviceIDs, err := activeServiceIDs(ctx, conn, w.date)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve active services for %s: %w", w.date, err)
+		serviceIDs, ok := serviceIDCache[w.date]
+		if !ok {
+			var err error
+			serviceIDs, err = activeServiceIDs(ctx, conn, w.date)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve active services for %s: %w", w.date, err)
+			}
+			serviceIDCache[w.date] = serviceIDs
 		}
 		if len(serviceIDs) == 0 {
 			continue
@@ -63,22 +80,18 @@ func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time) ([
 			return nil, fmt.Errorf("failed to find next departures from %s: %w", stopID, err)
 		}
 
-		dayStart := time.Date(w.date.Year(), w.date.Month(), w.date.Day(), 0, 0, 0, 0, time.UTC)
+		dayStart := time.Date(w.date.Year(), w.date.Month(), w.date.Day(), 0, 0, 0, 0, w.date.Location())
 
 		for _, c := range candidates {
-			next, ok, err := nextStopOnTrip(ctx, conn, c.TripID, c.StopSequence)
-			if err != nil {
-				return nil, fmt.Errorf("failed to find next stop for trip %s: %w", c.TripID, err)
-			}
-			if !ok {
+			if !c.HasNextStop {
 				continue // this trip ends here, no onward edge
 			}
 			edges = append(edges, edge{
-				ToStopID: next.StopID,
+				ToStopID: c.NextStopID,
 				RouteID:  c.RouteID,
 				Kind:     edgeKindRide,
 				DepartAt: dayStart.Add(c.DepartureTime),
-				ArriveAt: dayStart.Add(next.ArrivalTime),
+				ArriveAt: dayStart.Add(c.NextArrival),
 			})
 		}
 	}

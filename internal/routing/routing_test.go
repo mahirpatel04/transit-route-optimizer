@@ -16,7 +16,7 @@ func TestFindRoute_TimesSqToGrandCentral(t *testing.T) {
 	// stations like "631" never do, so they can never be a reachable
 	// destination in this graph; either direction platform is a valid
 	// arrival at the same physical station.
-	departAt := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+	departAt := testWeekday(t, conn)
 
 	route, err := FindRoute(ctx, conn, "127N", "631S", departAt)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestFindRoute_UnionSquareToTimesSquare(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	departAt := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+	departAt := testWeekday(t, conn)
 
 	route, err := FindRoute(ctx, conn, "635N", "127N", departAt)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestFindRoute_SameStopReturnsEmptyRoute(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
-	departAt := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+	departAt := testWeekday(t, conn)
 
 	route, err := FindRoute(ctx, conn, "127N", "127N", departAt)
 	if err != nil {

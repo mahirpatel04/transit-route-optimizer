@@ -27,6 +27,23 @@ func testConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
+// testWeekday returns a real Wednesday within the ingested feed's earliest
+// active calendar range, so tests don't silently rot as GTFS snapshots age.
+func testWeekday(t *testing.T, conn *pgx.Conn) time.Time {
+	t.Helper()
+	ctx := context.Background()
+	var startDate time.Time
+	err := conn.QueryRow(ctx, `SELECT MIN(start_date) FROM calendar`).Scan(&startDate)
+	if err != nil {
+		t.Fatalf("failed to find earliest calendar start_date: %v", err)
+	}
+	d := startDate
+	for d.Weekday() != time.Wednesday {
+		d = d.AddDate(0, 0, 1)
+	}
+	return time.Date(d.Year(), d.Month(), d.Day(), 8, 0, 0, 0, time.UTC)
+}
+
 func TestActiveServiceIDs_ReturnsNonEmptyForARealWeekday(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
@@ -34,7 +51,7 @@ func TestActiveServiceIDs_ReturnsNonEmptyForARealWeekday(t *testing.T) {
 	// A Wednesday. The exact date doesn't matter as long as it's a real
 	// weekday within some calendar row's start/end range — NYC subway GTFS
 	// calendars are typically valid for long, ongoing windows.
-	date := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	date := testWeekday(t, conn)
 
 	ids, err := activeServiceIDs(ctx, conn, date)
 	if err != nil {
