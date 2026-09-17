@@ -29,4 +29,14 @@ describe('Header', () => {
       expect(screen.getByText(/—/)).toBeInTheDocument();
     });
   });
+
+  it('falls back to an em dash on a network error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    render(<Header />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/—/)).toBeInTheDocument();
+    });
+  });
 });

@@ -29,7 +29,7 @@ export default function StopsNearForm() {
         setError(data.error || 'Request failed.');
         return;
       }
-      setStops(data);
+      setStops(Array.isArray(data) ? data : []);
       setStatus('success');
     } catch {
       setStatus('error');

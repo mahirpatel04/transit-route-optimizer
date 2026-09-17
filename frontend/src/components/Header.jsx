@@ -10,7 +10,7 @@ export default function Header() {
         if (!res.ok) throw new Error('request failed');
         return res.json();
       })
-      .then((data) => setLastFetchTime(data.last_fetch_time))
+      .then((data) => setLastFetchTime(data.last_fetch_time || '—'))
       .catch(() => setLastFetchTime('—'));
   }, []);
 

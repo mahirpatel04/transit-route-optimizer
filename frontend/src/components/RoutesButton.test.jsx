@@ -37,4 +37,15 @@ describe('RoutesButton', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/internal error/);
     });
   });
+
+  it('shows an inline error on a network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    render(<RoutesButton />);
+    await userEvent.click(screen.getByRole('button', { name: /get routes/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/network error/i);
+    });
+  });
 });

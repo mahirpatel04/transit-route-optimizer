@@ -16,7 +16,7 @@ export default function RoutesButton() {
         setError(data.error || 'Request failed.');
         return;
       }
-      setRoutes(data);
+      setRoutes(Array.isArray(data) ? data : []);
       setStatus('success');
     } catch {
       setStatus('error');

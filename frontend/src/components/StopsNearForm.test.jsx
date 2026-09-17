@@ -54,4 +54,17 @@ describe('StopsNearForm', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/invalid or missing lat\/lon/);
     });
   });
+
+  it('shows an inline error on a network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    render(<StopsNearForm />);
+    await userEvent.type(screen.getByLabelText(/latitude/i), '40.758');
+    await userEvent.type(screen.getByLabelText(/longitude/i), '-73.9855');
+    await userEvent.click(screen.getByRole('button', { name: /find nearby stops/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/network error/i);
+    });
+  });
 });
