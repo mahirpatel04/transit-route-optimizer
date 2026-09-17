@@ -52,6 +52,24 @@ func TestFindRoute_TimesSqToGrandCentral(t *testing.T) {
 	}
 }
 
+func TestFindRoute_UnionSquareToTimesSquare(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	departAt := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+
+	route, err := FindRoute(ctx, conn, "635N", "127N", departAt)
+	if err != nil {
+		t.Fatalf("FindRoute: %v", err)
+	}
+	if len(route.Legs) == 0 {
+		t.Fatal("expected at least one leg")
+	}
+	if route.TotalTime <= 0 || route.TotalTime > 1*time.Hour {
+		t.Errorf("expected a same-borough trip (Union Sq to Times Sq), got %v", route.TotalTime)
+	}
+}
+
 func TestFindRoute_SameStopReturnsEmptyRoute(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
