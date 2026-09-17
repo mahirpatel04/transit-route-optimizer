@@ -13,7 +13,7 @@ func TestExpand_ReturnsTransitAndTransferEdges(t *testing.T) {
 	// A Wednesday, 8am — well within normal NYC subway service hours.
 	at := testWeekday(t, conn)
 
-	edges, err := expand(ctx, conn, "127N", at, map[time.Time][]string{})
+	edges, err := expand(ctx, conn, "127N", at, map[string][]string{})
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestExpand_HandlesPostMidnightRollover(t *testing.T) {
 	// be considered, not just that day's own early-morning trips.
 	at := time.Date(nextDay.Year(), nextDay.Month(), nextDay.Day(), 1, 15, 0, 0, loc)
 
-	edges, err := expand(ctx, conn, "127N", at, map[time.Time][]string{})
+	edges, err := expand(ctx, conn, "127N", at, map[string][]string{})
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}

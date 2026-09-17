@@ -138,7 +138,7 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 	})
 
 	visited := map[string]bool{}
-	serviceIDCache := make(map[time.Time][]string)
+	serviceIDCache := make(map[string][]string)
 
 	for pq.Len() > 0 {
 		current := heap.Pop(pq).(*searchNode)

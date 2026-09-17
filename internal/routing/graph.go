@@ -55,21 +55,26 @@ func serviceWindowsFor(at time.Time) [2]serviceWindow {
 // expand returns every edge reachable from stopID starting at real time
 // `at`: one ride edge per route (earliest trip after `at`, to its next
 // stop), plus transfer edges within the station complex. serviceIDCache
-// memoizes activeServiceIDs results by calendar date across the many expand
-// calls made within a single FindRoute search, since the answer is
-// identical for every expansion within that search.
-func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time, serviceIDCache map[time.Time][]string) ([]edge, error) {
+// memoizes activeServiceIDs results by calendar date (as a "2006-01-02"
+// string, not time.Time — time.Time equality includes the *Location
+// pointer, and time.LoadLocation doesn't return a singleton, so two windows
+// for the same calendar date built from separate LoadLocation calls would
+// never compare equal as map keys) across the many expand calls made within
+// a single FindRoute search, since the answer is identical for every
+// expansion within that search.
+func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time, serviceIDCache map[string][]string) ([]edge, error) {
 	var edges []edge
 
 	for _, w := range serviceWindowsFor(at) {
-		serviceIDs, ok := serviceIDCache[w.date]
+		dateKey := w.date.Format("2006-01-02")
+		serviceIDs, ok := serviceIDCache[dateKey]
 		if !ok {
 			var err error
 			serviceIDs, err = activeServiceIDs(ctx, conn, w.date)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve active services for %s: %w", w.date, err)
 			}
-			serviceIDCache[w.date] = serviceIDs
+			serviceIDCache[dateKey] = serviceIDs
 		}
 		if len(serviceIDs) == 0 {
 			continue
