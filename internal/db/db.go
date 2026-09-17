@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,6 +21,20 @@ func TruncateAll(ctx context.Context, conn db) error {
 	_, err := conn.Exec(ctx, "TRUNCATE stops, routes, calendar, calendar_dates, trips, stop_times RESTART IDENTITY CASCADE")
 	if err != nil {
 		return fmt.Errorf("failed to truncate tables: %w", err)
+	}
+
+	return nil
+}
+
+// SetLastFetchTime records the given time as the most recent GTFS fetch,
+// overwriting the single row in ingest_state.
+func SetLastFetchTime(ctx context.Context, conn db, t time.Time) error {
+	_, err := conn.Exec(ctx, `
+		INSERT INTO ingest_state (id, last_fetch_time) VALUES (1, $1)
+		ON CONFLICT (id) DO UPDATE SET last_fetch_time = EXCLUDED.last_fetch_time
+	`, t)
+	if err != nil {
+		return fmt.Errorf("failed to set last fetch time: %w", err)
 	}
 
 	return nil

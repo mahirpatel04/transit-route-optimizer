@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("unable to connect to database: %w", err)
 	}
 	defer conn.Close(ctx)
+
+	fetchTime := time.Now()
 
 	body, err := gtfs.FetchData("https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip")
 	if err != nil {
@@ -138,6 +141,10 @@ func run(ctx context.Context) error {
 
 	if _, err := db.InsertStopTimes(ctx, tx, stopTimes); err != nil {
 		return fmt.Errorf("insert stop_times failed: %w", err)
+	}
+
+	if err := db.SetLastFetchTime(ctx, tx, fetchTime); err != nil {
+		return fmt.Errorf("set last fetch time failed: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
