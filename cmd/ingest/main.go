@@ -8,8 +8,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 	"github.com/jackc/pgx/v5"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/api"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/config"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/db"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
@@ -25,13 +28,37 @@ func isCronEvent(raw json.RawMessage) bool {
 
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
-		lambda.Start(run)
+		lambda.Start(handler)
 		return
 	}
 
 	if err := run(context.Background()); err != nil {
 		log.Fatalf("ingest failed: %v", err)
 	}
+}
+
+func handler(ctx context.Context, raw json.RawMessage) (any, error) {
+	if isCronEvent(raw) {
+		return nil, run(ctx)
+	}
+
+	var req events.APIGatewayV2HTTPRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, fmt.Errorf("failed to parse HTTP request event: %w", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
+	}
+
+	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to database: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	return httpadapter.NewV2(api.NewMux(conn)).ProxyWithContext(ctx, req)
 }
 
 func run(ctx context.Context) error {
