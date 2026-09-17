@@ -34,8 +34,12 @@ func handleStopsNear(conn *pgx.Conn) http.HandlerFunc {
 		}
 
 		limit := defaultStopsLimit
-		if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= maxStopsLimit {
-			limit = l
+		if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
+			if l > maxStopsLimit {
+				limit = maxStopsLimit
+			} else {
+				limit = l
+			}
 		}
 
 		stops, err := db.GetAllStops(r.Context(), conn)

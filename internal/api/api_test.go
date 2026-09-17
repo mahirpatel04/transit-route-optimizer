@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -139,5 +140,40 @@ func TestHandleStopsNear_ReturnsSortedByDistance(t *testing.T) {
 	}
 	if got[0].StopId != "near" {
 		t.Errorf("got nearest stop %q, want %q", got[0].StopId, "near")
+	}
+}
+
+func TestHandleStopsNear_LimitClampedToMax(t *testing.T) {
+	srv, conn := testServer(t)
+	ctx := context.Background()
+
+	var stops []gtfs.Stop
+	for i := 0; i < maxStopsLimit+10; i++ {
+		stops = append(stops, gtfs.Stop{
+			StopId:   fmt.Sprintf("stop-%d", i),
+			StopName: fmt.Sprintf("Stop %d", i),
+			Lat:      40.7 + float64(i)*0.001,
+			Lon:      -73.9 + float64(i)*0.001,
+		})
+	}
+	if _, err := db.InsertStops(ctx, conn, stops); err != nil {
+		t.Fatalf("InsertStops: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/stops/near?lat=40.7580&lon=-73.9855&limit=100")
+	if err != nil {
+		t.Fatalf("GET /stops/near: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+
+	var got []stopNearResult
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != maxStopsLimit {
+		t.Fatalf("got %d results, want %d (clamped to max)", len(got), maxStopsLimit)
 	}
 }
