@@ -53,9 +53,11 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
   v2 HTTP payload format) is adapted into a real `http.Request` via
   `github.com/awslabs/aws-lambda-go-api-proxy/httpadapter` and routed through
   a standard `net/http.ServeMux`.
-- The DB connection (`*pgx.Conn`, opened once via `config.Load()` +
-  `pgx.Connect`) is shared — reused across warm invocations of either path,
-  not reopened per request.
+- The DB connection (`*pgx.Conn`, via `config.Load()` + `pgx.Connect`) is
+  opened fresh per invocation on the HTTP path, same as the existing ingest
+  path already does — simpler than reusing a connection across warm/cold
+  Lambda cycles, and avoids needing to health-check a possibly-stale
+  connection after a freeze.
 
 `net/http.ServeMux`'s Go 1.22+ method+path-variable patterns
 (`mux.HandleFunc("GET /stops/near", ...)`) are used directly — no external
