@@ -78,8 +78,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		VpcSubnets: &awsec2.SubnetSelection{
 			SubnetType: awsec2.SubnetType_PUBLIC,
 		},
-		InstanceType:    awsec2.InstanceType_Of(awsec2.InstanceClass_T4G, awsec2.InstanceSize_NANO),
-		MachineImage:    awsec2.MachineImage_LatestAmazonLinux2023(&awsec2.AmazonLinux2023ImageSsmParameterProps{}),
+		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T4G, awsec2.InstanceSize_NANO),
+		MachineImage: awsec2.MachineImage_LatestAmazonLinux2023(&awsec2.AmazonLinux2023ImageSsmParameterProps{
+			CpuType: awsec2.AmazonLinuxCpuType_ARM_64,
+		}),
 		SecurityGroup:   natSecurityGroup,
 		SourceDestCheck: jsii.Bool(false),
 		UserData:        awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{}),
