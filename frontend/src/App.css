@@ -82,6 +82,23 @@ main h1 {
   flex-wrap: wrap;
 }
 
+.panel label.optimize-toggle {
+  flex-direction: row;
+  align-items: center;
+  flex: initial;
+  min-width: 0;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.optimize-toggle input[type='checkbox'] {
+  min-height: auto;
+  width: 16px;
+  height: 16px;
+}
+
 .suggestion-chips {
   display: flex;
   flex-wrap: wrap;

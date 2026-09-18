@@ -14,12 +14,24 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/routing"
 )
 
-// Each additional candidate multiplies the number of full A* searches
-// (fromCandidates × toCandidates), and each search can issue hundreds of
-// sequential DB round trips — see internal/routing/graph.go's expand(). At 3
-// candidates (9 searches) this blew past the Lambda's request timeout; 1
-// keeps a single request to a single search.
-const candidateStopCount = 1
+// originCandidateCount is always 1: the search starts from a single fixed
+// platform, the one nearest the geocoded origin.
+const originCandidateCount = 1
+
+// destinationCandidateCount is how many of the nearest destination platforms
+// are offered to the search as acceptable endpoints when the "optimize"
+// strategy is requested (?optimize=true). This does NOT multiply the number
+// of A* searches — routing.FindRouteMultiTarget evaluates all of them in one
+// search (a multi-goal heuristic), so raising this doesn't reintroduce the
+// per-candidate-pair timeout that motivated dropping candidateStopCount to 1
+// (see git history on internal/api/route.go).
+const destinationCandidateCount = 3
+
+// nearestOnlyCandidateCount is the default (non-optimized) strategy: only
+// ever consider the single nearest platform to the destination, minimizing
+// the walk at that end even if a slightly farther platform would give a
+// faster overall trip.
+const nearestOnlyCandidateCount = 1
 
 // walkDuration converts a straight-line distance into a walking time at
 // the same pedestrian pace used for in-graph cross-complex transfers, so
@@ -98,60 +110,60 @@ func handleRoute(conn *pgx.Conn, geocoder geocode.Geocoder) http.HandlerFunc {
 			stopNameByID[s.StopId] = s.StopName
 		}
 
-		fromCandidates := routing.NearestStops(stops, fromLat, fromLon, candidateStopCount)
-		toCandidates := routing.NearestStops(stops, toLat, toLon, candidateStopCount)
-
-		var best routing.Route
-		var bestFromStop, bestToStop gtfs.Stop
-		var bestInitialWalk, bestFinalWalk time.Duration
-		var bestTotal time.Duration
-		found := false
-	candidatePairLoop:
-		for _, fromStop := range fromCandidates {
-			for _, toStop := range toCandidates {
-				if ctx.Err() != nil {
-					break candidatePairLoop
-				}
-				if fromStop.StopId == toStop.StopId {
-					continue
-				}
-				initialWalk := walkDuration(geo.Haversine(fromLat, fromLon, fromStop.Lat, fromStop.Lon))
-				route, err := routing.FindRoute(ctx, conn, fromStop.StopId, toStop.StopId, departAt.Add(initialWalk))
-				if err != nil {
-					if !strings.Contains(err.Error(), "no route found") {
-						log.Printf("route: %v", err)
-					}
-					continue // this candidate pair has no route; try the next
-				}
-				finalWalk := walkDuration(geo.Haversine(toLat, toLon, toStop.Lat, toStop.Lon))
-				total := initialWalk + route.TotalTime + finalWalk
-				if !found || total < bestTotal {
-					best = route
-					bestFromStop = fromStop
-					bestToStop = toStop
-					bestInitialWalk = initialWalk
-					bestFinalWalk = finalWalk
-					bestTotal = total
-					found = true
-				}
-			}
+		optimize := r.URL.Query().Get("optimize") == "true"
+		toCandidateCount := nearestOnlyCandidateCount
+		if optimize {
+			toCandidateCount = destinationCandidateCount
 		}
 
-		if !found {
+		fromCandidates := routing.NearestStops(stops, fromLat, fromLon, originCandidateCount)
+		toCandidates := routing.NearestStops(stops, toLat, toLon, toCandidateCount)
+		if len(fromCandidates) == 0 || len(toCandidates) == 0 {
+			writeError(w, http.StatusNotFound, "no route found")
+			return
+		}
+		fromStop := fromCandidates[0]
+
+		toStopIDs := make([]string, len(toCandidates))
+		toStopByID := make(map[string]gtfs.Stop, len(toCandidates))
+		for i, s := range toCandidates {
+			toStopIDs[i] = s.StopId
+			toStopByID[s.StopId] = s
+		}
+
+		initialWalk := walkDuration(geo.Haversine(fromLat, fromLon, fromStop.Lat, fromStop.Lon))
+		route, err := routing.FindRouteMultiTarget(ctx, conn, fromStop.StopId, toStopIDs, departAt.Add(initialWalk))
+		if err != nil {
+			if !strings.Contains(err.Error(), "no route found") {
+				log.Printf("route: %v", err)
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
 			writeError(w, http.StatusNotFound, "no route found")
 			return
 		}
 
+		// toStop is whichever destination candidate the search actually
+		// reached — the fastest one, not necessarily the nearest. An empty
+		// route (no legs) means the origin platform was itself already one
+		// of the destination candidates, so it's also the arrival point.
+		toStop := fromStop
+		if len(route.Legs) > 0 {
+			toStop = toStopByID[route.Legs[len(route.Legs)-1].ToStopID]
+		}
+		finalWalk := walkDuration(geo.Haversine(toLat, toLon, toStop.Lat, toStop.Lon))
+		total := initialWalk + route.TotalTime + finalWalk
+
 		firstDepartAt := departAt
-		legs := make([]legResult, 0, len(best.Legs)+2)
+		legs := make([]legResult, 0, len(route.Legs)+2)
 		legs = append(legs, legResult{
 			Kind:       "walk",
-			ToStopID:   bestFromStop.StopId,
-			ToStopName: bestFromStop.StopName,
+			ToStopID:   fromStop.StopId,
+			ToStopName: fromStop.StopName,
 			DepartAt:   firstDepartAt.Format(time.RFC3339),
-			ArriveAt:   firstDepartAt.Add(bestInitialWalk).Format(time.RFC3339),
+			ArriveAt:   firstDepartAt.Add(initialWalk).Format(time.RFC3339),
 		})
-		for _, leg := range best.Legs {
+		for _, leg := range route.Legs {
 			legs = append(legs, legResult{
 				Kind:         string(leg.Kind),
 				RouteID:      leg.RouteID,
@@ -163,18 +175,18 @@ func handleRoute(conn *pgx.Conn, geocoder geocode.Geocoder) http.HandlerFunc {
 				ArriveAt:     leg.ArriveAt.Format(time.RFC3339),
 			})
 		}
-		lastArriveAt := best.Legs[len(best.Legs)-1].ArriveAt
+		lastArriveAt := firstDepartAt.Add(initialWalk).Add(route.TotalTime)
 		legs = append(legs, legResult{
 			Kind:         "walk",
-			FromStopID:   bestToStop.StopId,
-			FromStopName: bestToStop.StopName,
+			FromStopID:   toStop.StopId,
+			FromStopName: toStop.StopName,
 			ToStopName:   toAddr,
 			DepartAt:     lastArriveAt.Format(time.RFC3339),
-			ArriveAt:     lastArriveAt.Add(bestFinalWalk).Format(time.RFC3339),
+			ArriveAt:     lastArriveAt.Add(finalWalk).Format(time.RFC3339),
 		})
 
 		writeJSON(w, http.StatusOK, routeResponse{
-			TotalTimeSeconds: bestTotal.Seconds(),
+			TotalTimeSeconds: total.Seconds(),
 			Legs:             legs,
 		})
 	}

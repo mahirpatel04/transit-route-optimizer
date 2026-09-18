@@ -70,6 +70,45 @@ func TestFindRoute_UnionSquareToTimesSquare(t *testing.T) {
 	}
 }
 
+func TestFindRouteMultiTarget_ReachesFastestOfSeveralTargets(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	departAt := testWeekday(t, conn)
+
+	// 631N and 631S are both Grand Central-42 St platforms (4/5/6) — either
+	// is a real, valid arrival at the same physical station.
+	route, err := FindRouteMultiTarget(ctx, conn, "127N", []string{"631N", "631S"}, departAt)
+	if err != nil {
+		t.Fatalf("FindRouteMultiTarget: %v", err)
+	}
+	if len(route.Legs) == 0 {
+		t.Fatal("expected at least one leg")
+	}
+	last := route.Legs[len(route.Legs)-1]
+	if last.ToStopID != "631N" && last.ToStopID != "631S" {
+		t.Errorf("expected the route to end at one of the requested targets, got %s", last.ToStopID)
+	}
+	if route.TotalTime <= 0 || route.TotalTime > 2*time.Hour {
+		t.Errorf("expected a positive, same-borough trip time, got %v", route.TotalTime)
+	}
+}
+
+func TestFindRouteMultiTarget_OriginAlreadyATargetReturnsEmptyRoute(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	departAt := testWeekday(t, conn)
+
+	route, err := FindRouteMultiTarget(ctx, conn, "127N", []string{"631S", "127N"}, departAt)
+	if err != nil {
+		t.Fatalf("FindRouteMultiTarget: %v", err)
+	}
+	if len(route.Legs) != 0 {
+		t.Errorf("expected no legs when the origin is already one of the targets, got %d", len(route.Legs))
+	}
+}
+
 func TestFindRoute_SameStopReturnsEmptyRoute(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()

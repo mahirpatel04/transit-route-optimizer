@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,8 +100,27 @@ func (pq *priorityQueue) Pop() any {
 // departing at or after departAt, and returns the fastest path as an
 // ordered list of legs.
 func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string, departAt time.Time) (Route, error) {
-	if fromStopID == toStopID {
-		return Route{}, nil
+	return FindRouteMultiTarget(ctx, conn, fromStopID, []string{toStopID}, departAt)
+}
+
+// FindRouteMultiTarget runs a time-dependent A* search from fromStopID to
+// whichever of toStopIDs is reached fastest, departing at or after
+// departAt. This is a single search, not one per target: the heuristic
+// used to order the priority queue is the minimum estimated remaining time
+// across all targets, which keeps it admissible for whichever target the
+// search actually reaches — the same technique as adding a zero-cost edge
+// from every target to one virtual destination. Candidate stops are
+// typically a handful of platforms near a geocoded address; the extra cost
+// per heuristic call is negligible next to the DB round trips expand()
+// already does.
+//
+// If fromStopID is itself one of toStopIDs, returns an empty Route
+// immediately (already at the best candidate, no ride needed).
+func FindRouteMultiTarget(ctx context.Context, conn *pgx.Conn, fromStopID string, toStopIDs []string, departAt time.Time) (Route, error) {
+	for _, t := range toStopIDs {
+		if t == fromStopID {
+			return Route{}, nil
+		}
 	}
 
 	stops, err := db.GetAllStops(ctx, conn)
@@ -112,9 +132,16 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 		coords[s.StopId] = struct{ lat, lon float64 }{s.Lat, s.Lon}
 	}
 
-	destCoord, ok := coords[toStopID]
-	if !ok {
-		return Route{}, fmt.Errorf("unknown destination stop %s", toStopID)
+	targets := make(map[string]bool, len(toStopIDs))
+	var destCoords []struct{ lat, lon float64 }
+	for _, t := range toStopIDs {
+		targets[t] = true
+		if c, ok := coords[t]; ok {
+			destCoords = append(destCoords, c)
+		}
+	}
+	if len(destCoords) == 0 {
+		return Route{}, fmt.Errorf("no known destination stop among %v", toStopIDs)
 	}
 
 	heuristic := func(stopID string) time.Duration {
@@ -122,8 +149,13 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 		if !ok {
 			return 0
 		}
-		meters := geo.Haversine(c.lat, c.lon, destCoord.lat, destCoord.lon)
-		return time.Duration(meters/maxSpeedMetersPerSecond) * time.Second
+		best := math.Inf(1)
+		for _, d := range destCoords {
+			if meters := geo.Haversine(c.lat, c.lon, d.lat, d.lon); meters < best {
+				best = meters
+			}
+		}
+		return time.Duration(best/maxSpeedMetersPerSecond) * time.Second
 	}
 
 	best := map[string]time.Time{fromStopID: departAt}
@@ -147,8 +179,8 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 		}
 		visited[current.stopID] = true
 
-		if current.stopID == toStopID {
-			return reconstructRoute(fromStopID, toStopID, predecessor, current.arriveAt), nil
+		if targets[current.stopID] {
+			return reconstructRoute(fromStopID, current.stopID, predecessor, current.arriveAt), nil
 		}
 
 		edges, err := expand(ctx, conn, current.stopID, current.arriveAt, serviceIDCache)
@@ -180,7 +212,7 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 		}
 	}
 
-	return Route{}, fmt.Errorf("no route found from %s to %s", fromStopID, toStopID)
+	return Route{}, fmt.Errorf("no route found from %s to any of %v", fromStopID, toStopIDs)
 }
 
 func reconstructRoute(fromStopID, toStopID string, predecessor map[string]cameFrom, finalArrival time.Time) Route {
