@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsevents"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awseventstargets"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsrds"
 	"github.com/aws/constructs-go/constructs/v10"
@@ -105,6 +106,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		SourceDestCheck: jsii.Bool(false),
 		UserData:        awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{}),
 	})
+	// Temporary: SSM access to diagnose the NAT instance's networking directly
+	// (console output has been unhelpfully empty, and there's no other way to
+	// inspect a running instance's iptables/routing state without SSH).
+	natInstance.Role().AddManagedPolicy(awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("AmazonSSMManagedInstanceCore")))
 	// Amazon Linux 2023 on Nitro instances (t4g included) names its primary
 	// interface via systemd predictable naming (e.g. ens5), not eth0 — detect
 	// it at boot instead of hardcoding, or the MASQUERADE rule silently
