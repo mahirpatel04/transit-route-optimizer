@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/api"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/config"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/db"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/geocode"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
 
@@ -73,7 +75,8 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	defer conn.Close(ctx)
 
-	return httpadapter.NewV2(api.NewMux(conn)).ProxyWithContext(ctx, req)
+	geocoder := geocode.NewNominatimGeocoder(http.DefaultClient)
+	return httpadapter.NewV2(api.NewMux(conn, geocoder)).ProxyWithContext(ctx, req)
 }
 
 func run(ctx context.Context) error {
