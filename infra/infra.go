@@ -84,7 +84,15 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		jsii.Bool(false),
 	)
 
-	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstance"), &awsec2.InstanceProps{
+	// Logical ID bumped to NatInstanceV2 to force a real CloudFormation
+	// replacement (new instance ID): a UserData-only update stops/starts the
+	// existing instance in place, and cloud-init only runs UserData on an
+	// instance's first boot — an in-place UserData fix silently never executes
+	// on a pre-existing instance. Confirmed via a real deploy: the interface-
+	// detection fix landed in the instance's UserData metadata but the NAT
+	// instance kept its original ID and the MASQUERADE rule was never
+	// re-applied with the corrected interface name.
+	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstanceV2"), &awsec2.InstanceProps{
 		Vpc: vpc,
 		VpcSubnets: &awsec2.SubnetSelection{
 			SubnetType: awsec2.SubnetType_PUBLIC,
