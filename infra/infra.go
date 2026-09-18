@@ -97,10 +97,15 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		SourceDestCheck: jsii.Bool(false),
 		UserData:        awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{}),
 	})
+	// Amazon Linux 2023 on Nitro instances (t4g included) names its primary
+	// interface via systemd predictable naming (e.g. ens5), not eth0 — detect
+	// it at boot instead of hardcoding, or the MASQUERADE rule silently
+	// matches nothing.
 	natInstance.UserData().AddCommands(
 		jsii.String("sysctl -w net.ipv4.ip_forward=1"),
 		jsii.String("echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf"),
-		jsii.String("iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"),
+		jsii.String("IFACE=$(ip route show default | awk '{print $5; exit}')"),
+		jsii.String("iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE"),
 		jsii.String("iptables-save > /etc/sysconfig/iptables"),
 	)
 
