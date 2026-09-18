@@ -31,12 +31,13 @@ func TestTransferNeighbors_SameParentStationIsFree(t *testing.T) {
 	}
 }
 
-func TestTransferNeighbors_SameStopNameDifferentParentCosts180s(t *testing.T) {
+func TestTransferNeighbors_NearbyParentStationCostsProportionalToDistance(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
 
 	// 127 and 902 are different lines' parent stations, both named
-	// "Times Sq-42 St".
+	// "Times Sq-42 St" — within crossComplexTransferRadiusMeters regardless
+	// of the name match, so this also covers same-named nearby complexes.
 	transfers, err := transferNeighbors(ctx, conn, "127")
 	if err != nil {
 		t.Fatalf("transferNeighbors: %v", err)
@@ -46,13 +47,57 @@ func TestTransferNeighbors_SameStopNameDifferentParentCosts180s(t *testing.T) {
 	for _, tr := range transfers {
 		if tr.StopID == "902" {
 			found = true
-			if tr.Cost != 180*time.Second {
-				t.Errorf("expected 180s cross-line transfer cost, got %v", tr.Cost)
+			var radiusMeters float64 = crossComplexTransferRadiusMeters
+			maxCost := time.Duration(radiusMeters/PedestrianSpeedMetersPerSecond) * time.Second
+			if tr.Cost <= 0 || tr.Cost > maxCost {
+				t.Errorf("expected a positive cost bounded by the transfer radius at walking pace, got %v", tr.Cost)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("expected 902 to appear as a same-stop_name cross-line transfer from 127")
+		t.Fatal("expected 902 to appear as a nearby cross-complex transfer from 127")
+	}
+}
+
+func TestTransferNeighbors_NearbyDifferentlyNamedComplexIsConnected(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	// 719 (Court Sq, 7 train) and F09 (Court Sq-23 St, E/M train) are the
+	// same real-world transfer complex but have different stop_names —
+	// matching by name alone would miss this real transfer.
+	transfers, err := transferNeighbors(ctx, conn, "719")
+	if err != nil {
+		t.Fatalf("transferNeighbors: %v", err)
+	}
+
+	found := false
+	for _, tr := range transfers {
+		if tr.StopID == "F09" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected F09 (Court Sq-23 St) to appear as a nearby cross-complex transfer from 719 (Court Sq), despite the differing stop_name")
+	}
+}
+
+func TestTransferNeighbors_DistantComplexIsNotConnected(t *testing.T) {
+	conn := testConn(t)
+	ctx := context.Background()
+
+	// 127 (Times Sq-42 St) and R20 (Union Square) are both parent stations
+	// but nowhere near each other — must not be connected regardless of
+	// dropping the stop_name requirement.
+	transfers, err := transferNeighbors(ctx, conn, "127")
+	if err != nil {
+		t.Fatalf("transferNeighbors: %v", err)
+	}
+
+	for _, tr := range transfers {
+		if tr.StopID == "R20" {
+			t.Fatalf("expected R20 (Union Square) not to appear as a transfer from 127 (Times Sq-42 St) — too far apart")
+		}
 	}
 }
 

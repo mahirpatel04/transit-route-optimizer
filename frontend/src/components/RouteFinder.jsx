@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import { formatClockTime, formatDuration } from '../format';
+import { collapseAdjacentWalks } from '../legs';
+import { POPULAR_PLACES } from '../places';
 import RouteBullet from './RouteBullet';
 
 // The database scales down to zero when idle, so the first request after a
@@ -65,6 +67,7 @@ export default function RouteFinder() {
               value={from}
               onChange={(e) => setFrom(e.target.value)}
             />
+            <SuggestionChips label="Suggested starting points" onSelect={setFrom} />
           </label>
           <label>
             To
@@ -74,6 +77,7 @@ export default function RouteFinder() {
               value={to}
               onChange={(e) => setTo(e.target.value)}
             />
+            <SuggestionChips label="Suggested destinations" onSelect={setTo} />
           </label>
         </div>
         <div className="button-row">
@@ -100,7 +104,7 @@ export default function RouteFinder() {
         <>
           <p className="route-summary">Total time: {formatDuration(route.total_time_seconds)}</p>
           <ol className="leg-list">
-            {route.legs.map((leg, i) => (
+            {collapseAdjacentWalks(route.legs).map((leg, i) => (
               <li key={i} className={`leg leg-${leg.kind}`}>
                 {leg.kind === 'ride' ? (
                   <RouteBullet routeId={leg.route_id} />
@@ -110,7 +114,9 @@ export default function RouteFinder() {
                   </span>
                 )}
                 <span className="leg-detail">
-                  {leg.kind === 'ride' ? `${leg.from_stop_id} → ${leg.to_stop_id}` : `Walk to ${leg.to_stop_id}`}
+                  {leg.kind === 'ride'
+                    ? `Take the ${leg.route_id} train from ${leg.from_stop_name} to ${leg.to_stop_name}`
+                    : `Walk to ${leg.to_stop_name}`}
                 </span>
                 <span className="leg-times">
                   {formatClockTime(leg.depart_at)} – {formatClockTime(leg.arrive_at)}
@@ -121,5 +127,17 @@ export default function RouteFinder() {
         </>
       )}
     </section>
+  );
+}
+
+function SuggestionChips({ label, onSelect }) {
+  return (
+    <div className="suggestion-chips" role="group" aria-label={label}>
+      {POPULAR_PLACES.map((place) => (
+        <button type="button" key={place} className="suggestion-chip" onClick={() => onSelect(place)}>
+          {place.replace(', NYC', '')}
+        </button>
+      ))}
+    </div>
   );
 }
