@@ -85,15 +85,21 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		jsii.Bool(false),
 	)
 
-	// Logical ID bumped to NatInstanceV2 to force a real CloudFormation
-	// replacement (new instance ID): a UserData-only update stops/starts the
+	// Logical ID bumped again (V2 -> V3): same reason as the V1 -> V2 bump
+	// below — a UserData-only change stops/starts the existing instance
+	// in place rather than replacing it, and cloud-init only runs UserData
+	// on an instance's first boot. This bump carries the `dnf install -y
+	// iptables` fix (AL2023 doesn't ship classic iptables by default,
+	// confirmed via this instance's own console output).
+	//
+	// Original V1 -> V2 bump reason: a UserData-only update stops/starts the
 	// existing instance in place, and cloud-init only runs UserData on an
-	// instance's first boot — an in-place UserData fix silently never executes
-	// on a pre-existing instance. Confirmed via a real deploy: the interface-
-	// detection fix landed in the instance's UserData metadata but the NAT
-	// instance kept its original ID and the MASQUERADE rule was never
-	// re-applied with the corrected interface name.
-	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstanceV2"), &awsec2.InstanceProps{
+	// instance's first boot — an in-place UserData fix silently never
+	// executes on a pre-existing instance. Confirmed via a real deploy: the
+	// interface-detection fix landed in the instance's UserData metadata but
+	// the NAT instance kept its original ID and the MASQUERADE rule was
+	// never re-applied with the corrected interface name.
+	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstanceV3"), &awsec2.InstanceProps{
 		Vpc: vpc,
 		VpcSubnets: &awsec2.SubnetSelection{
 			SubnetType: awsec2.SubnetType_PUBLIC,
@@ -114,7 +120,13 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	// interface via systemd predictable naming (e.g. ens5), not eth0 — detect
 	// it at boot instead of hardcoding, or the MASQUERADE rule silently
 	// matches nothing.
+	//
+	// AL2023 also doesn't ship the classic `iptables` binary by default (it
+	// uses nftables) — confirmed via this instance's own console output
+	// ("iptables: command not found"), which silently no-op'd the MASQUERADE
+	// rule on the two prior deploy attempts. Install it explicitly first.
 	natInstance.UserData().AddCommands(
+		jsii.String("dnf install -y iptables"),
 		jsii.String("sysctl -w net.ipv4.ip_forward=1"),
 		jsii.String("echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf"),
 		jsii.String("IFACE=$(ip route show default | awk '{print $5; exit}')"),
