@@ -70,6 +70,18 @@ main h1 {
   flex-wrap: wrap;
 }
 
+.field-divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--border);
+}
+
+@media (max-width: 480px) {
+  .field-divider {
+    display: none;
+  }
+}
+
 .panel label {
   display: flex;
   flex-direction: column;

@@ -71,6 +71,7 @@ export default function RouteFinder() {
             />
             <SuggestionChips label="Suggested starting points" onSelect={setFrom} />
           </label>
+          <div className="field-divider" aria-hidden="true" />
           <label>
             To
             <input
