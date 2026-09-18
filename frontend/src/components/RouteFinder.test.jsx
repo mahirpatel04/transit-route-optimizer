@@ -85,7 +85,7 @@ describe('RouteFinder', () => {
     await fillAndSubmit('Times Square, NYC', 'Grand Central Terminal, NYC');
     expect(fetch).toHaveBeenLastCalledWith(expect.not.stringContaining('optimize'));
 
-    await userEvent.click(screen.getByRole('checkbox', { name: /optimize for fastest trip/i }));
+    await userEvent.click(screen.getByRole('switch', { name: /optimize for fastest trip instead of closest station/i }));
     await fillAndSubmit();
     expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining('optimize=true'));
   });

@@ -82,10 +82,26 @@ export default function RouteFinder() {
             <SuggestionChips label="Suggested destinations" onSelect={setTo} />
           </label>
         </div>
-        <label className="optimize-toggle">
-          <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
-          Optimize for fastest trip (may mean more walking)
-        </label>
+        <div className="optimize-toggle-row">
+          <span className={`toggle-label${!optimize ? ' toggle-label-active' : ''}`}>
+            Optimize to get to closest station
+          </span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={optimize}
+              onChange={(e) => setOptimize(e.target.checked)}
+              aria-label="Optimize for fastest trip instead of closest station"
+            />
+            <span className="toggle-track">
+              <span className="toggle-thumb" />
+            </span>
+          </label>
+          <span className={`toggle-label${optimize ? ' toggle-label-active' : ''}`}>
+            Optimize for fastest trip (may mean more walking)
+          </span>
+        </div>
         <div className="button-row">
           <button type="submit" disabled={status === 'loading'}>
             {status === 'loading' ? 'Finding route…' : 'Find route'}
