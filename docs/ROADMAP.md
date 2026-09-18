@@ -1,6 +1,6 @@
 # Transit Route Optimizer — Execution Roadmap
 
-**Goal:** Ingest NYC transit GTFS data, land it in a serverless Postgres database (Aurora Serverless), automate re-ingestion on AWS Lambda, and build a time-dependent A* algorithm that finds optimal routes using real schedule data.
+**Goal:** Ingest NYC transit GTFS data, land it in a serverless Postgres database (Aurora Serverless), automate re-ingestion on AWS Lambda, build a time-dependent A* algorithm that finds optimal routes using real schedule data, and serve it over an HTTP API and frontend given plain NYC addresses.
 
 **How to read this doc:** Phases are roughly sequential. Checked items are already done in this repo. Each open phase lists concrete next steps where the approach is already decided, and **Open decisions** where it isn't yet — those need a design pass before they can be broken into a real implementation plan (see `superpowers:writing-plans` once a phase's decisions are settled).
 
@@ -87,19 +87,43 @@ Phase 1 is fully closed out.
 
 ## Phase 4 — Time-dependent A* routing
 
-- [ ] Design the routing graph model: nodes = stops, edges = scheduled trips between consecutive `stop_times` rows, edge weight = wait time + travel time as a function of departure time (this is what makes it "time-dependent" rather than a static shortest-path graph)
-- [ ] Decide how to query "next departure from stop X after time T" efficiently from `stop_times` (likely an index on `(stop_id, departure_time)`, already partially covered by `idx_stop_times_stop_id`)
-- [ ] Implement the time-dependent A* core: priority queue keyed by arrival time, admissible heuristic (e.g. great-circle distance / max vehicle speed) using `stops.lat`/`lon`
-- [ ] Handle `calendar` / `calendar_dates` service-day filtering (a trip only "exists" on days its service_id is active)
-- [ ] Validate against known real routes (e.g. compare computed NYC subway A-to-B trips against Google Maps transit directions for sanity)
+- [x] Design the routing graph model: nodes = stops, edges = scheduled trips between consecutive `stop_times` rows, edge weight = wait time + travel time as a function of departure time (this is what makes it "time-dependent" rather than a static shortest-path graph)
+- [x] Decide how to query "next departure from stop X after time T" efficiently from `stop_times` — indexed on `(stop_id, departure_time)` (`migrations/20260917221938_add_stop_times_departure_index.sql`)
+- [x] Implement the time-dependent A* core: priority queue keyed by arrival time, admissible heuristic (great-circle distance / max vehicle speed, 27 m/s) using `stops.lat`/`lon` (`internal/routing/routing.go`)
+- [x] Handle `calendar` / `calendar_dates` service-day filtering (`internal/routing/service_days.go`)
+- [x] Transfer edges: free between platforms sharing a `parent_station`, distance-priced walk between any two station complexes within 250m (`internal/routing/transfers.go`) — originally matched cross-line transfers by exact `stop_name`, which missed real transfers where MTA names the same physical complex differently per line; fixed to match by proximity instead (see Phase 5)
+- [x] Validate against known real routes — compared against Google Maps transit directions; used to find and fix both the candidate-fan-out timeout and the `stop_name`-matching bug (Phase 5)
 
-**Open decisions:**
+Phase 4's algorithm is done and exposed via the API (Phase 5). Open items from here are refinements, not gaps in the core search: `candidateStopCount` is currently 1 (only the single nearest platform at each end) purely to avoid the request-timeout bug documented in Phase 5 — batching/caching the per-expansion DB queries would let this go back to trying multiple candidates without timing out, which would likely close more of the remaining gap to Google Maps' routing quality than anything else on this list.
 
-- Where the algorithm runs (batch precomputation vs. on-demand query — Lambda cold-start cost matters if this becomes a live query service)
-- Whether results are exposed via an API, CLI, or stay a library used by tests/benchmarks (not yet requested, but likely the natural next phase after A* itself works)
+## Phase 5 — HTTP API, geocoding, and infra evolution
+
+**Goal:** expose Phase 4's routing engine over HTTP, given two free-text addresses instead of stop IDs.
+
+- [x] `GET /route?from=<address>&to=<address>&depart_at=<RFC3339, optional>` (`internal/api/route.go`): geocodes both addresses, resolves each to its nearest subway platform, runs `FindRoute`, and returns the trip as JSON — total time plus ordered walk/ride legs, each with station names and (for rides) the line to board
+- [x] `GET /ingest-time` — last successful ingest timestamp, surfaced in the frontend header
+- [x] Removed two placeholder endpoints (`GET /routes`, `GET /stops/near`) and their stub frontend panels once the real `/route` UI existed — they'd served their purpose as early scaffolding
+- [x] **Geocoding, round one — Nominatim:** the public OpenStreetMap Nominatim API, bounded to a NYC viewbox, with a required `User-Agent` header, client-side rate limiting (max 1 req/sec, its usage policy), and retry-with-backoff
+- [x] **Geocoding, round two — AWS Location Service:** switched from Nominatim to AWS Location Service (Places, Esri data source) for a higher rate limit suitable beyond hobby traffic. This ended up mattering more than expected — see the NAT detour below.
+- [x] **The NAT detour and its removal:** Nominatim needed real internet access, so a NAT instance + private subnet were added (five commits fixing AMI architecture, network-interface detection, and iptables/nftables issues along the way). Once geocoding moved to AWS Location Service, its own VPC interface endpoint meant the Lambda needed **no internet access at all** — the NAT instance and private subnet were deleted entirely. Net effect: less infrastructure than before, not more, once the actual dependency (a geocoder needing internet) was replaced with one that didn't.
+- [x] **Route search fan-out caused request timeouts:** trying the 3 nearest candidate platforms at each end meant up to 9 independent A* searches per request, each issuing many sequential DB round trips — enough to exceed the Lambda's timeout under real traffic. Reduced `candidateStopCount` to 1.
+- [x] **Cross-complex transfer matching bug, found via a Google Maps comparison:** a real trip (Long Island City → W 50th St) came back at 41 minutes through 3 line changes, versus Google's ~19-29 minutes via a single direct line. Root cause: `internal/routing/transfers.go` required an exact `stop_name` match to connect two lines' stations, which silently missed real transfers where MTA names the same physical complex differently per line (e.g. "Court Sq" vs. "Court Sq-23 St", ~90m apart). Fixed by matching any two complexes within 250m instead, priced by actual walking distance rather than a flat cost — the same trip improved to 30 minutes once the search could see the transfer it was missing.
+- [x] Added the missing address↔platform walk legs at both ends of a route (previously the response silently started/ended at the nearest platform with no accounting for the real walk from/to the typed address) and station names + line info on every leg.
+
+**Open decisions:** none blocking — `candidateStopCount` staying at 1 and the remaining gap to Google Maps' routing quality are both tracked as future refinements (see Phase 4 note above and Phase 6's ideas below).
+
+## Phase 6 — Frontend
+
+- [x] React (Vite) app (`frontend/`), deployed to GitHub Pages on push to `main`
+- [x] `RouteFinder` component: From/To address inputs, calls `GET /route`, renders total time and an ordered list of legs — colored line bullets (reusing real MTA bullet colors) for rides, a walk icon for walk legs, real station names and "Take the {line} train from X to Y" phrasing
+- [x] Click-to-fill suggestion chips for 8 popular NYC landmarks under each input, using full unambiguous names (a bare "Grand Central, NYC" geocodes to a Queens parkway — see Phase 5/`docs/ARCHITECTURE.md`)
+- [x] Collapses zero-duration same-station walk legs in the display (a cross-complex transfer lands on a station's parent node, then a free hop to the specific child platform — two real graph edges that read as a nonsensical "walk to the same place twice" if shown as separate rows)
+- [x] "Spinning up the database…" loading note once a request has been pending past a threshold, since Aurora Serverless scales to 0 ACU when idle and the first request after a quiet period pays a real resume cost
+
+**Open decisions:** none blocking. Possible next steps if traffic/quality work continues: surfacing multiple geocoding candidates for ambiguous addresses instead of silently taking the first result, and a small benchmark script comparing `/route` against the Google Maps Directions API across a wider set of trips (discussed, not yet built).
 
 ---
 
 ## Suggested immediate next step
 
-Phase 3 is functionally done — the Lambda successfully ingests into a CDK-managed Aurora cluster in `us-east-1`. Confirm the old `us-east-2` stack/cluster are fully torn down, then start Phase 4 (time-dependent A* routing).
+The core product loop is done: ingest → geocode → time-dependent A* search → HTTP API → frontend, deployed and verified against real data. The highest-leverage next step is likely **making `candidateStopCount` more than 1 affordable again** — batching or caching the per-expansion DB queries in `internal/routing/graph.go`'s `expand()` across a search (and across the from/to candidate pairs in `internal/api/route.go`) would let the search consider more than the single nearest platform at each end without reintroducing the request-timeout bug, which is likely the single biggest lever left on route quality versus Google Maps.
