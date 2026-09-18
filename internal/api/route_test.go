@@ -130,3 +130,39 @@ func TestHandleRoute_ReturnsRouteBetweenRealStops(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleRoute_OptimizeTrueConsidersMultipleDestinationCandidates(t *testing.T) {
+	conn := testConnForRoute(t)
+
+	geocoder := fakeGeocoder{
+		"Times Square, NYC":  {40.7580, -73.9855},
+		"Grand Central, NYC": {40.7527, -73.9772},
+	}
+	srv := httptest.NewServer(NewMux(conn, geocoder))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/route?from=Times+Square,+NYC&to=Grand+Central,+NYC&optimize=true")
+	if err != nil {
+		t.Fatalf("GET /route: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+
+	var body struct {
+		TotalTimeSeconds float64 `json:"total_time_seconds"`
+		Legs             []struct {
+			Kind string `json:"kind"`
+		} `json:"legs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Legs) < 2 {
+		t.Fatalf("expected at least the initial and final walk legs plus transit, got %d legs", len(body.Legs))
+	}
+	if body.TotalTimeSeconds <= 0 {
+		t.Errorf("expected positive total time, got %v", body.TotalTimeSeconds)
+	}
+}

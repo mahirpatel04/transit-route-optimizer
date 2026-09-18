@@ -75,6 +75,21 @@ describe('RouteFinder', () => {
     expect(screen.getByText(/walk to grand central terminal, nyc/i)).toBeInTheDocument();
   });
 
+  it('omits the optimize param by default and includes it when checked', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ total_time_seconds: 60, legs: [] }),
+    }));
+
+    render(<RouteFinder />);
+    await fillAndSubmit('Times Square, NYC', 'Grand Central Terminal, NYC');
+    expect(fetch).toHaveBeenLastCalledWith(expect.not.stringContaining('optimize'));
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /optimize for fastest trip/i }));
+    await fillAndSubmit();
+    expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining('optimize=true'));
+  });
+
   it('fills the corresponding input when a suggestion chip is clicked', async () => {
     render(<RouteFinder />);
 

@@ -14,6 +14,7 @@ const SLOW_REQUEST_MESSAGE_DELAY_MS = 2000;
 export default function RouteFinder() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [optimize, setOptimize] = useState(false);
   const [status, setStatus] = useState('idle'); // idle | loading | error | success
   const [error, setError] = useState('');
   const [route, setRoute] = useState(null);
@@ -39,6 +40,7 @@ export default function RouteFinder() {
     setStatus('loading');
     try {
       const params = new URLSearchParams({ from, to });
+      if (optimize) params.set('optimize', 'true');
       const res = await fetch(`${API_URL}/route?${params}`);
       const data = await res.json();
       if (!res.ok) {
@@ -80,6 +82,10 @@ export default function RouteFinder() {
             <SuggestionChips label="Suggested destinations" onSelect={setTo} />
           </label>
         </div>
+        <label className="optimize-toggle">
+          <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
+          Optimize for fastest trip (may mean more walking)
+        </label>
         <div className="button-row">
           <button type="submit" disabled={status === 'loading'}>
             {status === 'loading' ? 'Finding route…' : 'Find route'}
