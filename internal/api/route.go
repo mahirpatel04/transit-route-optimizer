@@ -12,7 +12,12 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/routing"
 )
 
-const candidateStopCount = 3
+// Each additional candidate multiplies the number of full A* searches
+// (fromCandidates × toCandidates), and each search can issue hundreds of
+// sequential DB round trips — see internal/routing/graph.go's expand(). At 3
+// candidates (9 searches) this blew past the Lambda's request timeout; 1
+// keeps a single request to a single search.
+const candidateStopCount = 1
 
 type legResult struct {
 	Kind       string `json:"kind"`
