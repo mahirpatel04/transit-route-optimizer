@@ -44,26 +44,15 @@ type cameFrom struct {
 	arriveAt time.Time
 }
 
-// maxSpeedMetersPerSecond is a fast, conservative upper bound (60 mph) on
-// how quickly a rider could possibly cover ground, used to keep the A*
-// heuristic admissible (it should never overestimate remaining time).
-// Known limitation: transfer edges connect platforms that can be
-// geographically apart, which can make the heuristic technically
-// inconsistent (not just admissible) in rare cases — full optimality under
-// an inconsistent heuristic isn't formally guaranteed here. Combined with
-// never re-expanding an already-visited node (see FindRoute), the search
-// is internally consistent (no corrupted path reconstruction) and correct
-// in the overwhelming majority of real cases, but a fully rigorous fix
-// would allow re-opening visited nodes when a strictly better arrival is
-// found — deferred as a known follow-up, not required for this package's
-// current use.
+// maxSpeedMetersPerSecond (60 mph) bounds the A* heuristic so it never
+// overestimates remaining time. Transfer edges can connect distant
+// platforms, which makes the heuristic technically inconsistent in rare
+// cases; combined with never re-expanding a visited node, the search stays
+// correct in practice without full formal optimality guarantees.
 const maxSpeedMetersPerSecond = 27
 
-// searchNode is one entry in the priority queue: a stop reached at a given
-// time, carrying only what's needed for the priority queue itself (stopID,
-// arrival time, and the heuristic-adjusted fScore used for ordering). Path
-// reconstruction goes through the separate predecessor map, not this
-// struct.
+// searchNode is one priority-queue entry; path reconstruction uses the
+// separate predecessor map, not this struct.
 type searchNode struct {
 	stopID   string
 	arriveAt time.Time
@@ -103,19 +92,11 @@ func FindRoute(ctx context.Context, conn *pgx.Conn, fromStopID, toStopID string,
 	return FindRouteMultiTarget(ctx, conn, fromStopID, []string{toStopID}, departAt)
 }
 
-// FindRouteMultiTarget runs a time-dependent A* search from fromStopID to
-// whichever of toStopIDs is reached fastest, departing at or after
-// departAt. This is a single search, not one per target: the heuristic
-// used to order the priority queue is the minimum estimated remaining time
-// across all targets, which keeps it admissible for whichever target the
-// search actually reaches — the same technique as adding a zero-cost edge
-// from every target to one virtual destination. Candidate stops are
-// typically a handful of platforms near a geocoded address; the extra cost
-// per heuristic call is negligible next to the DB round trips expand()
-// already does.
-//
-// If fromStopID is itself one of toStopIDs, returns an empty Route
-// immediately (already at the best candidate, no ride needed).
+// FindRouteMultiTarget is FindRoute for a set of acceptable destinations: one
+// A* search (not one per target), using the min estimated time across all
+// targets as the heuristic — equivalent to a zero-cost edge from every
+// target to one virtual destination. Returns an empty Route if fromStopID is
+// already one of toStopIDs.
 func FindRouteMultiTarget(ctx context.Context, conn *pgx.Conn, fromStopID string, toStopIDs []string, departAt time.Time) (Route, error) {
 	for _, t := range toStopIDs {
 		if t == fromStopID {

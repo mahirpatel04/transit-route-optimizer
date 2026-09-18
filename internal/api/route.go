@@ -14,29 +14,18 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/routing"
 )
 
-// originCandidateCount is always 1: the search starts from a single fixed
-// platform, the one nearest the geocoded origin.
-const originCandidateCount = 1
+// The search always starts from the single nearest origin platform.
+// Destination platforms considered: 1 by default (minimizes walking), or 3
+// with ?optimize=true — FindRouteMultiTarget evaluates all of them in one
+// search, so this doesn't multiply DB load.
+const (
+	originCandidateCount      = 1
+	nearestOnlyCandidateCount = 1
+	destinationCandidateCount = 3
+)
 
-// destinationCandidateCount is how many of the nearest destination platforms
-// are offered to the search as acceptable endpoints when the "optimize"
-// strategy is requested (?optimize=true). This does NOT multiply the number
-// of A* searches — routing.FindRouteMultiTarget evaluates all of them in one
-// search (a multi-goal heuristic), so raising this doesn't reintroduce the
-// per-candidate-pair timeout that motivated dropping candidateStopCount to 1
-// (see git history on internal/api/route.go).
-const destinationCandidateCount = 3
-
-// nearestOnlyCandidateCount is the default (non-optimized) strategy: only
-// ever consider the single nearest platform to the destination, minimizing
-// the walk at that end even if a slightly farther platform would give a
-// faster overall trip.
-const nearestOnlyCandidateCount = 1
-
-// walkDuration converts a straight-line distance into a walking time at
-// the same pedestrian pace used for in-graph cross-complex transfers, so
-// the address-to-platform legs at each end of a trip are priced
-// consistently with the transfers inside it.
+// walkDuration prices a straight-line distance at the same pedestrian pace
+// used for in-graph transfers.
 func walkDuration(meters float64) time.Duration {
 	return time.Duration(meters/routing.PedestrianSpeedMetersPerSecond) * time.Second
 }
@@ -143,10 +132,8 @@ func handleRoute(conn *pgx.Conn, geocoder geocode.Geocoder) http.HandlerFunc {
 			return
 		}
 
-		// toStop is whichever destination candidate the search actually
-		// reached — the fastest one, not necessarily the nearest. An empty
-		// route (no legs) means the origin platform was itself already one
-		// of the destination candidates, so it's also the arrival point.
+		// toStop is whichever candidate the search reached; an empty route
+		// means the origin was itself already a destination candidate.
 		toStop := fromStop
 		if len(route.Legs) > 0 {
 			toStop = toStopByID[route.Legs[len(route.Legs)-1].ToStopID]

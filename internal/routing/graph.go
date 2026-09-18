@@ -32,15 +32,13 @@ type serviceWindow struct {
 
 const agencyTimezone = "America/New_York" // NYC subway; would come from agency.txt in a multi-agency system
 
-// serviceWindowsFor returns the two service-day windows that must be
-// checked for real time `at`: the literal calendar day, and the previous
-// calendar day's post-midnight (>=24:00:00) continuation. GTFS schedule
-// times are in the transit agency's local timezone, so `at` is converted
-// into that zone before any date/time-of-day decomposition.
+// serviceWindowsFor returns the two service-day windows to check for real
+// time `at`: the calendar day, and the previous day's post-midnight
+// (>=24:00:00) continuation. GTFS times are in the agency's local timezone.
 func serviceWindowsFor(at time.Time) [2]serviceWindow {
 	loc, err := time.LoadLocation(agencyTimezone)
 	if err != nil {
-		loc = time.UTC // extremely unlikely on any real deployment; fail safe rather than panic
+		loc = time.UTC
 	}
 	localAt := at.In(loc)
 	dayStart := time.Date(localAt.Year(), localAt.Month(), localAt.Day(), 0, 0, 0, 0, loc)
@@ -52,16 +50,11 @@ func serviceWindowsFor(at time.Time) [2]serviceWindow {
 	}
 }
 
-// expand returns every edge reachable from stopID starting at real time
-// `at`: one ride edge per route (earliest trip after `at`, to its next
-// stop), plus transfer edges within the station complex. serviceIDCache
-// memoizes activeServiceIDs results by calendar date (as a "2006-01-02"
-// string, not time.Time — time.Time equality includes the *Location
-// pointer, and time.LoadLocation doesn't return a singleton, so two windows
-// for the same calendar date built from separate LoadLocation calls would
-// never compare equal as map keys) across the many expand calls made within
-// a single FindRoute search, since the answer is identical for every
-// expansion within that search.
+// expand returns every edge reachable from stopID at real time `at`: one
+// ride edge per route (earliest trip after `at`), plus transfer edges.
+// serviceIDCache memoizes activeServiceIDs by calendar date string (not
+// time.Time, whose *Location pointer breaks map-key equality across calls)
+// for the life of one FindRoute search.
 func expand(ctx context.Context, conn *pgx.Conn, stopID string, at time.Time, serviceIDCache map[string][]string) ([]edge, error) {
 	var edges []edge
 

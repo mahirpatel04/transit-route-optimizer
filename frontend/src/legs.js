@@ -1,10 +1,7 @@
-// A cross-line transfer lands on a station's parent node, then a second,
-// free (zero-duration) walk leg hops down to the specific child platform
-// needed to board — e.g. "Walk to 635" then "Walk to 635S". Both legs are
-// real graph edges and the timing is correct, but showing them as two
-// separate rows reads as a nonsensical "walk to the same place twice" to a
-// person. Collapse a zero-duration walk into the walk immediately before
-// it, keeping only the final (real, boardable) destination.
+// A cross-line transfer lands on a station's parent node, then a free
+// zero-duration walk hops to the boarding platform — e.g. "Walk to 635"
+// then "Walk to 635S". Collapse the zero-duration walk into the one before
+// it so it doesn't render as two redundant rows.
 export function collapseAdjacentWalks(legs) {
   const collapsed = [];
   for (const leg of legs) {

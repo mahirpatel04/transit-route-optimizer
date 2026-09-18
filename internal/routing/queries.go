@@ -19,13 +19,10 @@ type candidateTrip struct {
 	HasNextStop   bool
 }
 
-// nextDeparturesByRoute returns, for each distinct route serving stopID, the
-// earliest trip departing at or after afterGTFSTime among the given active
-// serviceIDs, along with that trip's next stop (via a LATERAL join, so no
-// separate per-candidate round trip is needed to find it). One candidate per
-// route — a later trip on the same route can never be a better edge than the
-// earliest one, since NYC subway trips on the same route+direction visit
-// stops in the same order.
+// nextDeparturesByRoute returns, for each route serving stopID, the earliest
+// active-service trip departing at or after afterGTFSTime plus its next stop
+// (via a LATERAL join). One candidate per route: a later trip on the same
+// route+direction can never beat the earliest one.
 func nextDeparturesByRoute(ctx context.Context, conn *pgx.Conn, stopID string, afterGTFSTime time.Duration, serviceIDs []string) ([]candidateTrip, error) {
 	if len(serviceIDs) == 0 {
 		return nil, nil

@@ -40,16 +40,13 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		log.Fatal("DB_MASTER_PASSWORD env variable not set — export it before running cdk commands")
 	}
 
-	// The account's default VPC, in whatever region this stack deploys to
-	// (see env() below — everything now lives in us-east-1, same region as
-	// the public GTFS bucket, so the S3 gateway endpoint actually applies).
+	// Default VPC, same region as the GTFS bucket (us-east-1) so the S3
+	// gateway endpoint below applies.
 	vpc := awsec2.Vpc_FromLookup(stack, jsii.String("DefaultVpc"), &awsec2.VpcLookupOptions{
 		IsDefault: jsii.Bool(true),
 	})
 
-	// S3 gateway endpoint: free, private route to S3 so the VPC-attached Lambda
-	// can fetch the GTFS zip without a NAT Gateway/Instance. Only works because
-	// the bucket and this VPC are now in the same region (us-east-1).
+	// Free, private route to S3 — no NAT Gateway/Instance needed.
 	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
 		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
 	})
@@ -66,10 +63,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Description:      jsii.String("Security group for the GTFS ingest Lambda"),
 	})
 
-	// Optional: allow a developer's laptop to psql in directly. Set to your
-	// current public IP (e.g. `curl -s https://checkip.amazonaws.com`) before
-	// deploying — it changes across networks, so this isn't hardcoded. Without
-	// it, only the ingest Lambda can reach Aurora.
+	// Optional: DEV_IP lets a developer's laptop psql in directly.
 	if devIP := os.Getenv("DEV_IP"); devIP != "" {
 		auroraSecurityGroup.AddIngressRule(
 			awsec2.Peer_Ipv4(jsii.String(devIP+"/32")),
@@ -86,9 +80,8 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		jsii.Bool(false),
 	)
 
-	// Publicly accessible so a human can still psql in from their laptop, same
-	// as the hand-created cluster from Phase 2 — the security group above is
-	// what actually restricts who can connect, not subnet placement.
+	// Publicly accessible; the security group above is what actually
+	// restricts who can connect, not subnet placement.
 	cluster := awsrds.NewDatabaseCluster(stack, jsii.String("AuroraCluster"), &awsrds.DatabaseClusterProps{
 		Engine: awsrds.DatabaseClusterEngine_AuroraPostgres(&awsrds.AuroraPostgresClusterEngineProps{
 			Version: awsrds.AuroraPostgresEngineVersion_VER_17_7(),
@@ -112,11 +105,8 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		DataSource: jsii.String("Esri"),
 	})
 
-	// Interface VPC endpoint for the Location Service Places API: reachable
-	// entirely inside the VPC, no NAT/internet path needed. The Lambda ENI in
-	// a "public" subnet still has no public IP of its own (an AWS Lambda
-	// limitation, not a routing one) — this was the actual reason a NAT
-	// instance existed before; the Places API doesn't need internet at all.
+	// Interface VPC endpoint for Location Service Places — reachable entirely
+	// inside the VPC, no NAT/internet path needed.
 	locationEndpointSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("LocationEndpointSecurityGroup"), &awsec2.SecurityGroupProps{
 		Vpc:              vpc,
 		AllowAllOutbound: jsii.Bool(true),
@@ -134,9 +124,8 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		SecurityGroups: &[]awsec2.ISecurityGroup{locationEndpointSecurityGroup},
 	})
 
-	// Built via string concatenation with a CDK token (ClusterEndpoint().Hostname()
-	// isn't known until deploy time) — CDK detects the embedded token and resolves
-	// it into a CloudFormation Fn::Join automatically when this is used as a prop.
+	// ClusterEndpoint().Hostname() is a CDK token; CDK resolves the embedded
+	// token into a CloudFormation Fn::Join automatically.
 	databaseURL := fmt.Sprintf(
 		"postgres://%s:%s@%s:5432/%s?sslmode=require",
 		url.QueryEscape(dbMasterUsername), url.QueryEscape(dbMasterPassword), *cluster.ClusterEndpoint().Hostname(), dbName,
@@ -149,8 +138,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Vpc:            vpc,
 		VpcSubnets:     &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
 		SecurityGroups: &[]awsec2.ISecurityGroup{lambdaSecurityGroup},
-		// The only "internet" resource this Lambda needs is the GTFS zip on S3,
-		// reachable via the S3 gateway endpoint above without a NAT Gateway/Instance.
+		// No internet needed (S3 gateway + Location Service interface endpoint);
 		// CDK's default safety check doesn't know that, so this is explicit.
 		AllowPublicSubnet: jsii.Bool(true),
 		Environment: &map[string]*string{
@@ -159,13 +147,8 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		},
 		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
 		MemorySize: jsii.Number(512),
-		// No ReservedConcurrentExecutions cap: this AWS account's total Lambda
-		// concurrency limit is only 10 (aws lambda get-account-settings), and AWS
-		// requires at least 10 stay unreserved account-wide — so reserving any
-		// amount for this function isn't possible without first requesting an AWS
-		// service quota increase. Public HTTP traffic and the weekly cron run
-		// currently share the account's full unreserved pool with no per-function
-		// cap; revisit once the quota is raised.
+		// No ReservedConcurrentExecutions: account concurrency limit is 10,
+		// and AWS requires 10 stay unreserved — revisit if that quota rises.
 	})
 
 	ingestFunction.Role().AddToPrincipalPolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{

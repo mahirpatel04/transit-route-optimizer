@@ -1,6 +1,6 @@
 # Transit Route Optimizer — Frontend
 
-A small React (Vite) client for the [transit-route-optimizer](../) API. Enter a "from" and "to" NYC address (or click a suggested landmark) and it finds the fastest real subway route between them — station names, which line to board, and the walks at each end included. Also shows the last GTFS ingest time in the header.
+A small React (Vite) client for the [transit-route-optimizer](../) API. Enter a "from" and "to" NYC address (or click a suggested landmark) and it finds the fastest real subway route between them — station names, which line to board, and the walks at each end included. A toggle switches between minimizing walking distance and optimizing for the fastest trip. Also shows the last GTFS ingest time in the header.
 
 ## Configuration
 

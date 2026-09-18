@@ -1,70 +1,60 @@
 # transit-route-optimizer
 
-Ingests NYC subway GTFS (transit schedule) data into Postgres, automated weekly on AWS, and serves time-dependent A* route search over it via a small HTTP API and React frontend. Give it two NYC addresses and a `GET /route` request returns the fastest real subway trip between them — geocoded, walk legs included, station names and lines spelled out.
+A time-dependent A* subway router for NYC: give it two addresses, it geocodes them, finds the fastest real subway trip using live GTFS schedule data, and returns walk/ride legs with station names and lines. Full pipeline — GTFS ingestion, routing engine, HTTP API, and a React frontend — deployed on AWS.
+
+**Live app:** [mahirpatel04.github.io/transit-route-optimizer](https://mahirpatel04.github.io/transit-route-optimizer/)
 
 ## Stack
 
 | | |
 |---|---|
-| Language | Go (`pgx`, `aws-lambda-go`), React (Vite) frontend |
-| Database | Aurora Serverless v2 (Postgres), local Docker Postgres for dev |
-| Compute | AWS Lambda (container image) — GTFS ingest (weekly, via EventBridge) and the HTTP API (via a public Function URL) share one Lambda/binary |
-| Geocoding | AWS Location Service (Places), reached over a VPC interface endpoint — no NAT, no internet egress needed |
-| Infra | AWS CDK (Go) — `infra/` |
+| Backend | Go (`pgx`, `aws-lambda-go`) |
+| Database | Aurora Serverless v2 (Postgres) |
+| Compute | AWS Lambda (container image) — one function serves both the weekly GTFS ingest and the HTTP API |
+| Geocoding | AWS Location Service, reached over a VPC interface endpoint (no NAT, no internet egress) |
+| Infra | AWS CDK (Go) |
+| Frontend | React (Vite), deployed to GitHub Pages |
 
 ## How it works
 
-**Ingest:** `cmd/ingest` fetches the GTFS zip from S3, parses its 6 CSV files (header-name column lookup, not fixed index), then truncates and bulk-inserts all 6 tables inside one Postgres transaction (`pgx.CopyFrom`).
+1. **Ingest** (`cmd/ingest`, weekly via EventBridge): fetch the GTFS zip from S3, parse 6 CSV files, truncate + bulk-load into Postgres in one transaction.
+2. **Route search** (`GET /route?from=<address>&to=<address>`): geocode both addresses, resolve each to a subway platform, run a time-dependent A* search (`internal/routing`) over real scheduled departures, transfers, and service-day calendars.
+3. **Two search strategies**, toggled by `?optimize=true`:
+   - **Default — nearest platform.** Minimizes walking distance at each end.
+   - **Optimized — multi-target A*.** Considers the 3 nearest platforms at the destination in a single search (a multi-goal heuristic, not 3 separate searches), so a farther-to-walk platform on a faster line can win. Never slower than the default, sometimes 20-30% faster.
 
-**Routing:** `GET /route?from=<address>&to=<address>` geocodes both addresses (AWS Location Service, bounded to NYC), resolves each to its nearest subway stop, and runs a time-dependent A* search (`internal/routing`) over the ingested schedule — respecting real service-day calendars, transfer costs between stations, and scheduled departure times. The response includes the walk from your typed address to the first platform, every ride/walk leg with station names and line, and the walk from the last platform to your destination.
-
-The same Lambda binary serves both jobs and both event sources — it checks `AWS_LAMBDA_FUNCTION_NAME` at startup, then branches on the incoming event shape (EventBridge cron vs. an HTTP request) to decide whether to run the ingest job or dispatch to the API mux (`internal/api`).
-
-**Frontend:** a small React app (`frontend/`) with a from/to route finder, deployed to GitHub Pages.
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a deeper look at how the pieces fit together, and [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full phase-by-phase design history, decisions, and tradeoffs (NAT vs. S3/Location Service endpoints, geocoder choice, transfer-matching bugs found and fixed, etc.).
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full data flow and key engineering decisions, and [`docs/ROADMAP.md`](docs/ROADMAP.md) for phase-by-phase build history.
 
 ## Local development
 
 ```bash
-make up              # start local Postgres + run migrations
-make ingest-dev       # run the ingest job against local Postgres
-make reset            # wipe local DB and rebuild from scratch
+make up              # local Postgres + migrations
+make ingest-dev       # run the ingest job locally
 ```
 
-`.env` needs both `DATABASE_URL` and `PLACE_INDEX_NAME` — `internal/config.Load()` is shared between the ingest job and the API, so it requires both even though ingest itself never geocodes. `PLACE_INDEX_NAME` only matters for exercising `/route` locally; any placeholder value is fine for `make ingest-dev`.
+`.env` needs `DATABASE_URL` and `PLACE_INDEX_NAME` (any placeholder value works for ingest-only work).
 
-## Deploying / running against Aurora
-
-Requires `.env.prod` (gitignored) with a `DATABASE_URL` pointing at Aurora.
+## Deploying
 
 ```bash
-make migrate-prod     # apply schema migrations to Aurora
-make ingest-prod      # run the ingest job against Aurora
-```
+make migrate-prod && make ingest-prod   # against Aurora, needs .env.prod
 
-Infrastructure (Aurora, VPC, Lambda, EventBridge) is defined in `infra/infra.go` and deployed via CDK:
-
-```bash
 cd infra
-export DB_MASTER_PASSWORD='...'   # Aurora master password
-export DEV_IP=$(curl -s https://checkip.amazonaws.com)  # optional: allow your IP to psql in
+export DB_MASTER_PASSWORD='...'
 cdk deploy
 ```
 
 ## Project structure
 
 ```text
-cmd/ingest/           entrypoint (dual-mode: local CLI + Lambda handler; also the API's Lambda entry)
-internal/gtfs/         fetch, unzip, parse GTFS files
-internal/db/           Postgres inserts (pgx.CopyFrom) and queries
-internal/config/       DATABASE_URL / PLACE_INDEX_NAME loading
-internal/geocode/      AWS Location Service + Nominatim geocoder implementations
-internal/routing/      time-dependent A* search, transfer graph, service-day resolution
-internal/api/          HTTP handlers (GET /route, GET /ingest-time)
-migrations/            goose schema migrations
-infra/                 AWS CDK app (Go)
-frontend/              React (Vite) client, deployed to GitHub Pages
-docs/ARCHITECTURE.md   how the pieces fit together and why
-docs/ROADMAP.md        phase-by-phase design history and decisions
+cmd/ingest/       entrypoint — dual-mode CLI/Lambda, also the API's Lambda handler
+internal/gtfs/     GTFS fetch/parse
+internal/db/       Postgres access (pgx)
+internal/geocode/  AWS Location Service geocoder
+internal/routing/  time-dependent A* search, transfers, service-day resolution
+internal/api/      HTTP handlers (GET /route, GET /ingest-time)
+migrations/        goose schema migrations
+infra/             AWS CDK app (Go)
+frontend/          React client
+docs/              architecture + roadmap
 ```
