@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import { formatClockTime, formatDuration } from '../format';
+import { collapseAdjacentWalks } from '../legs';
 import RouteBullet from './RouteBullet';
 
 // The database scales down to zero when idle, so the first request after a
@@ -100,7 +101,7 @@ export default function RouteFinder() {
         <>
           <p className="route-summary">Total time: {formatDuration(route.total_time_seconds)}</p>
           <ol className="leg-list">
-            {route.legs.map((leg, i) => (
+            {collapseAdjacentWalks(route.legs).map((leg, i) => (
               <li key={i} className={`leg leg-${leg.kind}`}>
                 {leg.kind === 'ride' ? (
                   <RouteBullet routeId={leg.route_id} />
