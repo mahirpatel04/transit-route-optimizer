@@ -8,7 +8,8 @@ import (
 )
 
 type Config struct {
-	DatabaseURL string
+	DatabaseURL    string
+	PlaceIndexName string
 }
 
 func Load() (*Config, error) {
@@ -21,7 +22,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("DATABASE_URL env variable not set")
 	}
 
+	placeIndexName := os.Getenv("PLACE_INDEX_NAME")
+	if placeIndexName == "" {
+		return nil, fmt.Errorf("PLACE_INDEX_NAME env variable not set")
+	}
+
 	return &Config{
-		DatabaseURL: databaseURL,
+		DatabaseURL:    databaseURL,
+		PlaceIndexName: placeIndexName,
 	}, nil
 }

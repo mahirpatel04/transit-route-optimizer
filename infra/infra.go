@@ -10,7 +10,9 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsevents"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awseventstargets"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awslocation"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsrds"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
@@ -19,6 +21,7 @@ import (
 const (
 	dbMasterUsername = "transit"
 	dbName           = "transit_optimizer"
+	placeIndexName   = "TransitRouteOptimizerPlaceIndex"
 )
 
 type InfraStackProps struct {
@@ -102,6 +105,35 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		}),
 	})
 
+	// Esri is the cheaper of the two available data providers and has solid
+	// NYC coverage — no need for HERE here.
+	placeIndex := awslocation.NewCfnPlaceIndex(stack, jsii.String("PlaceIndex"), &awslocation.CfnPlaceIndexProps{
+		IndexName:  jsii.String(placeIndexName),
+		DataSource: jsii.String("Esri"),
+	})
+
+	// Interface VPC endpoint for the Location Service Places API: reachable
+	// entirely inside the VPC, no NAT/internet path needed. The Lambda ENI in
+	// a "public" subnet still has no public IP of its own (an AWS Lambda
+	// limitation, not a routing one) — this was the actual reason a NAT
+	// instance existed before; the Places API doesn't need internet at all.
+	locationEndpointSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("LocationEndpointSecurityGroup"), &awsec2.SecurityGroupProps{
+		Vpc:              vpc,
+		AllowAllOutbound: jsii.Bool(true),
+		Description:      jsii.String("Security group for the Location Service Places VPC endpoint"),
+	})
+	locationEndpointSecurityGroup.AddIngressRule(
+		awsec2.Peer_SecurityGroupId(lambdaSecurityGroup.SecurityGroupId(), nil),
+		awsec2.Port_Tcp(jsii.Number(443)),
+		jsii.String("Allow the ingest Lambda to reach the Location Service Places endpoint"),
+		jsii.Bool(false),
+	)
+	vpc.AddInterfaceEndpoint(jsii.String("LocationPlacesEndpoint"), &awsec2.InterfaceVpcEndpointOptions{
+		Service:        awsec2.InterfaceVpcEndpointAwsService_LOCATION_SERVICE_PLACES(),
+		Subnets:        &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
+		SecurityGroups: &[]awsec2.ISecurityGroup{locationEndpointSecurityGroup},
+	})
+
 	// Built via string concatenation with a CDK token (ClusterEndpoint().Hostname()
 	// isn't known until deploy time) — CDK detects the embedded token and resolves
 	// it into a CloudFormation Fn::Join automatically when this is used as a prop.
@@ -122,7 +154,8 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		// CDK's default safety check doesn't know that, so this is explicit.
 		AllowPublicSubnet: jsii.Bool(true),
 		Environment: &map[string]*string{
-			"DATABASE_URL": jsii.String(databaseURL),
+			"DATABASE_URL":     jsii.String(databaseURL),
+			"PLACE_INDEX_NAME": jsii.String(placeIndexName),
 		},
 		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
 		MemorySize: jsii.Number(512),
@@ -134,6 +167,11 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		// currently share the account's full unreserved pool with no per-function
 		// cap; revisit once the quota is raised.
 	})
+
+	ingestFunction.Role().AddToPrincipalPolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+		Actions:   &[]*string{jsii.String("geo:SearchPlaceIndexForText")},
+		Resources: &[]*string{placeIndex.AttrArn()},
+	}))
 
 	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
 		AuthType: awslambda.FunctionUrlAuthType_NONE,

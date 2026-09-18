@@ -36,3 +36,10 @@ go.work.sum
 
 # Scratch workspace for planning/execution tooling — never committed
 .superpowers/
+
+# Claude Code local state (skills cache, settings) — machine-specific
+.claude/
+skills-lock.json
+
+# CDK synth artifact — regenerated on demand, not something to publish
+infra/synth_output.txt

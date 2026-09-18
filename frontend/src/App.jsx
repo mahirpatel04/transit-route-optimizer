@@ -1,6 +1,5 @@
 import Header from './components/Header';
-import RoutesButton from './components/RoutesButton';
-import StopsNearForm from './components/StopsNearForm';
+import RouteFinder from './components/RouteFinder';
 import './App.css';
 
 export default function App() {
@@ -9,8 +8,7 @@ export default function App() {
       <Header />
       <main>
         <h1>NYC Transit</h1>
-        <RoutesButton />
-        <StopsNearForm />
+        <RouteFinder />
       </main>
     </div>
   );

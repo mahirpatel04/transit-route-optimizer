@@ -1,6 +1,15 @@
-export function formatDistance(meters) {
-  if (meters < 1000) return `${Math.round(meters)} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
+export function formatClockTime(isoString) {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return isoString;
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+export function formatDuration(totalSeconds) {
+  const minutes = Math.round(totalSeconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`;
 }
 
 export function formatRelativeTime(isoString, now = new Date()) {

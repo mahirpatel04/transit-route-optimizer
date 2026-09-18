@@ -15,6 +15,7 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/api"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/config"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/db"
+	"github.com/mahirpatel04/transit-route-optimizer/internal/geocode"
 	"github.com/mahirpatel04/transit-route-optimizer/internal/gtfs"
 )
 
@@ -73,7 +74,16 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	defer conn.Close(ctx)
 
-	return httpadapter.NewV2(api.NewMux(conn)).ProxyWithContext(ctx, req)
+	geocoder, err := geocode.NewLocationServiceGeocoder(ctx, cfg.PlaceIndexName)
+	if err != nil {
+		log.Printf("handler: failed to init geocoder: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+	return httpadapter.NewV2(api.NewMux(conn, geocoder)).ProxyWithContext(ctx, req)
 }
 
 func run(ctx context.Context) error {
