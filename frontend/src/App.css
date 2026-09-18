@@ -21,6 +21,22 @@ main h1 {
   margin: 0.5rem 0 1.5rem;
 }
 
+.app-footer {
+  margin-top: 2rem;
+  padding: 1rem 0;
+  font-size: 0.8125rem;
+  color: var(--content-muted);
+  text-align: center;
+}
+
+.app-footer a {
+  color: var(--content-muted);
+}
+
+.app-footer a:hover {
+  color: var(--accent);
+}
+
 .panel {
   background: var(--surface-raised);
   border: 1px solid var(--border);
