@@ -75,7 +75,7 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	defer conn.Close(ctx)
 
-	geocoder := geocode.NewNominatimGeocoder(http.DefaultClient)
+	geocoder := geocode.NewNominatimGeocoder(&http.Client{Timeout: 10 * time.Second})
 	return httpadapter.NewV2(api.NewMux(conn, geocoder)).ProxyWithContext(ctx, req)
 }
 

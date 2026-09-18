@@ -44,13 +44,6 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		IsDefault: jsii.Bool(true),
 	})
 
-	// S3 gateway endpoint: free, private route to S3 so the VPC-attached Lambda
-	// can fetch the GTFS zip without a NAT Gateway/Instance. Only works because
-	// the bucket and this VPC are now in the same region (us-east-1).
-	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
-		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
-	})
-
 	// New private subnet for the ingest Lambda's outbound-internet-needing
 	// path (geocoding). 172.31.96.0/24 is verified free — the default VPC's
 	// 172.31.0.0/16 only has 172.31.0.0/20 through 172.31.80.0/20 allocated
@@ -59,6 +52,24 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		VpcId:            vpc.VpcId(),
 		AvailabilityZone: jsii.String("us-east-1a"),
 		CidrBlock:        jsii.String("172.31.96.0/24"),
+	})
+
+	// S3 gateway endpoint: free, private route to S3 so the VPC-attached Lambda
+	// can fetch the GTFS zip without a NAT Gateway/Instance. Only works because
+	// the bucket and this VPC are now in the same region (us-east-1).
+	//
+	// privateSubnet is created via a separate construct rather than looked up
+	// through the imported (Vpc_FromLookup) vpc object, so it isn't picked up
+	// by the "all subnets in the VPC" default subnet selection below — it's
+	// listed explicitly alongside that default so the Lambda's subnet gets
+	// route-table coverage too, and its S3 traffic doesn't fall back to the
+	// (metered) NAT instance path.
+	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
+		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
+		Subnets: &[]*awsec2.SubnetSelection{
+			{SubnetType: awsec2.SubnetType_PUBLIC},
+			{Subnets: &[]awsec2.ISubnet{privateSubnet}},
+		},
 	})
 
 	natSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("NatInstanceSecurityGroup"), &awsec2.SecurityGroupProps{

@@ -51,12 +51,22 @@ func handleRoute(conn *pgx.Conn, geocoder geocode.Geocoder) http.HandlerFunc {
 
 		fromLat, fromLon, err := geocoder.Geocode(ctx, fromAddr)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "could not find 'from' address: "+fromAddr)
+			if strings.Contains(err.Error(), "no results") {
+				writeError(w, http.StatusBadRequest, "could not find 'from' address: "+err.Error())
+				return
+			}
+			log.Printf("route: %v", err)
+			writeError(w, http.StatusInternalServerError, "geocoding service unavailable")
 			return
 		}
 		toLat, toLon, err := geocoder.Geocode(ctx, toAddr)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "could not find 'to' address: "+toAddr)
+			if strings.Contains(err.Error(), "no results") {
+				writeError(w, http.StatusBadRequest, "could not find 'to' address: "+err.Error())
+				return
+			}
+			log.Printf("route: %v", err)
+			writeError(w, http.StatusInternalServerError, "geocoding service unavailable")
 			return
 		}
 
@@ -72,13 +82,20 @@ func handleRoute(conn *pgx.Conn, geocoder geocode.Geocoder) http.HandlerFunc {
 
 		var best routing.Route
 		found := false
+	candidatePairLoop:
 		for _, fromStop := range fromCandidates {
 			for _, toStop := range toCandidates {
+				if ctx.Err() != nil {
+					break candidatePairLoop
+				}
 				if fromStop.StopId == toStop.StopId {
 					continue
 				}
 				route, err := routing.FindRoute(ctx, conn, fromStop.StopId, toStop.StopId, departAt)
 				if err != nil {
+					if !strings.Contains(err.Error(), "no route found") {
+						log.Printf("route: %v", err)
+					}
 					continue // this candidate pair has no route; try the next
 				}
 				if !found || route.TotalTime < best.TotalTime {
