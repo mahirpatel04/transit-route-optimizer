@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import RouteFinder from './RouteFinder';
@@ -73,6 +73,18 @@ describe('RouteFinder', () => {
     expect(screen.getByText(/walk to times sq-42 st/i)).toBeInTheDocument();
     expect(screen.getByText(/walk to grand central-42 st/i)).toBeInTheDocument();
     expect(screen.getByText(/walk to grand central terminal, nyc/i)).toBeInTheDocument();
+  });
+
+  it('fills the corresponding input when a suggestion chip is clicked', async () => {
+    render(<RouteFinder />);
+
+    const fromChips = screen.getByRole('group', { name: /suggested starting points/i });
+    await userEvent.click(within(fromChips).getByRole('button', { name: /times square/i }));
+    expect(screen.getByLabelText(/^from$/i)).toHaveValue('Times Square, NYC');
+
+    const toChips = screen.getByRole('group', { name: /suggested destinations/i });
+    await userEvent.click(within(toChips).getByRole('button', { name: /grand central terminal/i }));
+    expect(screen.getByLabelText(/^to$/i)).toHaveValue('Grand Central Terminal, NYC');
   });
 
   it('requires both from and to before submitting', async () => {

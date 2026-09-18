@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import { formatClockTime, formatDuration } from '../format';
 import { collapseAdjacentWalks } from '../legs';
+import { POPULAR_PLACES } from '../places';
 import RouteBullet from './RouteBullet';
 
 // The database scales down to zero when idle, so the first request after a
@@ -66,6 +67,7 @@ export default function RouteFinder() {
               value={from}
               onChange={(e) => setFrom(e.target.value)}
             />
+            <SuggestionChips label="Suggested starting points" onSelect={setFrom} />
           </label>
           <label>
             To
@@ -75,6 +77,7 @@ export default function RouteFinder() {
               value={to}
               onChange={(e) => setTo(e.target.value)}
             />
+            <SuggestionChips label="Suggested destinations" onSelect={setTo} />
           </label>
         </div>
         <div className="button-row">
@@ -124,5 +127,17 @@ export default function RouteFinder() {
         </>
       )}
     </section>
+  );
+}
+
+function SuggestionChips({ label, onSelect }) {
+  return (
+    <div className="suggestion-chips" role="group" aria-label={label}>
+      {POPULAR_PLACES.map((place) => (
+        <button type="button" key={place} className="suggestion-chip" onClick={() => onSelect(place)}>
+          {place.replace(', NYC', '')}
+        </button>
+      ))}
+    </div>
   );
 }
