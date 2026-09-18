@@ -11,7 +11,7 @@ export function collapseAdjacentWalks(legs) {
     const isZeroDurationWalk = leg.kind === 'walk' && leg.depart_at === leg.arrive_at;
     const previous = collapsed[collapsed.length - 1];
     if (isZeroDurationWalk && previous?.kind === 'walk') {
-      collapsed[collapsed.length - 1] = { ...previous, to_stop_id: leg.to_stop_id };
+      collapsed[collapsed.length - 1] = { ...previous, to_stop_id: leg.to_stop_id, to_stop_name: leg.to_stop_name };
     } else {
       collapsed.push(leg);
     }

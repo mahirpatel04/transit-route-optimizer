@@ -99,16 +99,34 @@ func TestHandleRoute_ReturnsRouteBetweenRealStops(t *testing.T) {
 	var body struct {
 		TotalTimeSeconds float64 `json:"total_time_seconds"`
 		Legs             []struct {
-			Kind string `json:"kind"`
+			Kind         string `json:"kind"`
+			FromStopName string `json:"from_stop_name"`
+			ToStopName   string `json:"to_stop_name"`
 		} `json:"legs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(body.Legs) == 0 {
-		t.Error("expected at least one leg")
+	if len(body.Legs) < 2 {
+		t.Fatalf("expected at least the initial and final walk legs plus transit, got %d legs", len(body.Legs))
 	}
 	if body.TotalTimeSeconds <= 0 {
 		t.Errorf("expected positive total time, got %v", body.TotalTimeSeconds)
+	}
+
+	first := body.Legs[0]
+	if first.Kind != "walk" || first.ToStopName == "" {
+		t.Errorf("expected a leading walk leg with a named destination stop, got %+v", first)
+	}
+
+	last := body.Legs[len(body.Legs)-1]
+	if last.Kind != "walk" || last.FromStopName == "" || last.ToStopName != "Grand Central, NYC" {
+		t.Errorf("expected a trailing walk leg from a named stop to the requested 'to' address, got %+v", last)
+	}
+
+	for _, leg := range body.Legs[1 : len(body.Legs)-1] {
+		if leg.FromStopName == "" || leg.ToStopName == "" {
+			t.Errorf("expected every mid-route leg to carry stop names, got %+v", leg)
+		}
 	}
 }

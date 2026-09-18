@@ -9,12 +9,12 @@ import (
 	"github.com/mahirpatel04/transit-route-optimizer/internal/geo"
 )
 
-// pedestrianSpeedMetersPerSecond is an average walking pace (~5 km/h), used
+// PedestrianSpeedMetersPerSecond is an average walking pace (~5 km/h), used
 // to price a cross-complex transfer by actual distance rather than a flat
 // cost — unlike maxSpeedMetersPerSecond in routing.go, this doesn't need to
 // be a conservative bound, since transfer cost isn't used as a search
 // heuristic.
-const pedestrianSpeedMetersPerSecond = 1.4
+const PedestrianSpeedMetersPerSecond = 1.4
 
 // crossComplexTransferRadiusMeters bounds how far apart two station
 // complexes can be and still count as a walkable transfer. Complexes this
@@ -96,7 +96,7 @@ func transferNeighbors(ctx context.Context, conn *pgx.Conn, stopID string) ([]tr
 		if meters > crossComplexTransferRadiusMeters {
 			continue // too far apart to be a realistic walking transfer
 		}
-		cost := time.Duration(meters/pedestrianSpeedMetersPerSecond) * time.Second
+		cost := time.Duration(meters/PedestrianSpeedMetersPerSecond) * time.Second
 		transfers = append(transfers, transfer{StopID: otherParentStation, Cost: cost})
 	}
 	if err := crossComplexRows.Err(); err != nil {

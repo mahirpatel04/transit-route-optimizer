@@ -2,17 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { collapseAdjacentWalks } from './legs';
 
 describe('collapseAdjacentWalks', () => {
-  it('merges a zero-duration walk into the walk before it', () => {
+  it('merges a zero-duration walk into the walk before it, including the stop name', () => {
     const legs = [
-      { kind: 'walk', from_stop_id: 'X', to_stop_id: '635', depart_at: 't0', arrive_at: 't1' },
-      { kind: 'walk', from_stop_id: '635', to_stop_id: '635S', depart_at: 't1', arrive_at: 't1' },
+      { kind: 'walk', from_stop_id: 'X', to_stop_id: '635', to_stop_name: 'Grand Army Plaza', depart_at: 't0', arrive_at: 't1' },
+      { kind: 'walk', from_stop_id: '635', to_stop_id: '635S', to_stop_name: 'Grand Army Plaza', depart_at: 't1', arrive_at: 't1' },
       { kind: 'ride', route_id: '4', from_stop_id: '635S', to_stop_id: '640S', depart_at: 't1', arrive_at: 't2' },
     ];
 
     const got = collapseAdjacentWalks(legs);
 
     expect(got).toHaveLength(2);
-    expect(got[0]).toMatchObject({ kind: 'walk', to_stop_id: '635S', depart_at: 't0', arrive_at: 't1' });
+    expect(got[0]).toMatchObject({ kind: 'walk', to_stop_id: '635S', to_stop_name: 'Grand Army Plaza', depart_at: 't0', arrive_at: 't1' });
     expect(got[1]).toMatchObject({ kind: 'ride', from_stop_id: '635S' });
   });
 

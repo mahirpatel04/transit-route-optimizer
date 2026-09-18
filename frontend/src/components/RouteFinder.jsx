@@ -111,7 +111,9 @@ export default function RouteFinder() {
                   </span>
                 )}
                 <span className="leg-detail">
-                  {leg.kind === 'ride' ? `${leg.from_stop_id} → ${leg.to_stop_id}` : `Walk to ${leg.to_stop_id}`}
+                  {leg.kind === 'ride'
+                    ? `Take the ${leg.route_id} train from ${leg.from_stop_name} to ${leg.to_stop_name}`
+                    : `Walk to ${leg.to_stop_name}`}
                 </span>
                 <span className="leg-times">
                   {formatClockTime(leg.depart_at)} – {formatClockTime(leg.arrive_at)}

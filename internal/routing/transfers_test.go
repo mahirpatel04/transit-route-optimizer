@@ -48,7 +48,7 @@ func TestTransferNeighbors_NearbyParentStationCostsProportionalToDistance(t *tes
 		if tr.StopID == "902" {
 			found = true
 			var radiusMeters float64 = crossComplexTransferRadiusMeters
-			maxCost := time.Duration(radiusMeters/pedestrianSpeedMetersPerSecond) * time.Second
+			maxCost := time.Duration(radiusMeters/PedestrianSpeedMetersPerSecond) * time.Second
 			if tr.Cost <= 0 || tr.Cost > maxCost {
 				t.Errorf("expected a positive cost bounded by the transfer radius at walking pace, got %v", tr.Cost)
 			}
