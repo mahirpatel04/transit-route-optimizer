@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awseventstargets"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awslocation"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsrds"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
@@ -20,6 +21,7 @@ import (
 const (
 	dbMasterUsername = "transit"
 	dbName           = "transit_optimizer"
+	placeIndexName   = "TransitRouteOptimizerPlaceIndex"
 )
 
 type InfraStackProps struct {
@@ -45,99 +47,11 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		IsDefault: jsii.Bool(true),
 	})
 
-	// New private subnet for the ingest Lambda's outbound-internet-needing
-	// path (geocoding). 172.31.96.0/24 is verified free — the default VPC's
-	// 172.31.0.0/16 only has 172.31.0.0/20 through 172.31.80.0/20 allocated
-	// across its 6 existing (all-public) subnets.
-	privateSubnet := awsec2.NewPrivateSubnet(stack, jsii.String("GeocodePrivateSubnet"), &awsec2.PrivateSubnetProps{
-		VpcId:            vpc.VpcId(),
-		AvailabilityZone: jsii.String("us-east-1a"),
-		CidrBlock:        jsii.String("172.31.96.0/24"),
-	})
-
 	// S3 gateway endpoint: free, private route to S3 so the VPC-attached Lambda
 	// can fetch the GTFS zip without a NAT Gateway/Instance. Only works because
 	// the bucket and this VPC are now in the same region (us-east-1).
-	//
-	// privateSubnet is created via a separate construct rather than looked up
-	// through the imported (Vpc_FromLookup) vpc object, so it isn't picked up
-	// by the "all subnets in the VPC" default subnet selection below — it's
-	// listed explicitly alongside that default so the Lambda's subnet gets
-	// route-table coverage too, and its S3 traffic doesn't fall back to the
-	// (metered) NAT instance path.
 	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
 		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
-		Subnets: &[]*awsec2.SubnetSelection{
-			{SubnetType: awsec2.SubnetType_PUBLIC},
-			{Subnets: &[]awsec2.ISubnet{privateSubnet}},
-		},
-	})
-
-	natSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("NatInstanceSecurityGroup"), &awsec2.SecurityGroupProps{
-		Vpc:              vpc,
-		AllowAllOutbound: jsii.Bool(true),
-		Description:      jsii.String("Security group for the NAT instance"),
-	})
-	natSecurityGroup.AddIngressRule(
-		awsec2.Peer_Ipv4(jsii.String("172.31.96.0/24")),
-		awsec2.Port_AllTraffic(),
-		jsii.String("Allow all traffic from the private subnet to be NATed"),
-		jsii.Bool(false),
-	)
-
-	// Logical ID bumped again (V2 -> V3): same reason as the V1 -> V2 bump
-	// below — a UserData-only change stops/starts the existing instance
-	// in place rather than replacing it, and cloud-init only runs UserData
-	// on an instance's first boot. This bump carries the `dnf install -y
-	// iptables` fix (AL2023 doesn't ship classic iptables by default,
-	// confirmed via this instance's own console output).
-	//
-	// Original V1 -> V2 bump reason: a UserData-only update stops/starts the
-	// existing instance in place, and cloud-init only runs UserData on an
-	// instance's first boot — an in-place UserData fix silently never
-	// executes on a pre-existing instance. Confirmed via a real deploy: the
-	// interface-detection fix landed in the instance's UserData metadata but
-	// the NAT instance kept its original ID and the MASQUERADE rule was
-	// never re-applied with the corrected interface name.
-	natInstance := awsec2.NewInstance(stack, jsii.String("NatInstanceV3"), &awsec2.InstanceProps{
-		Vpc: vpc,
-		VpcSubnets: &awsec2.SubnetSelection{
-			SubnetType: awsec2.SubnetType_PUBLIC,
-		},
-		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T4G, awsec2.InstanceSize_NANO),
-		MachineImage: awsec2.MachineImage_LatestAmazonLinux2023(&awsec2.AmazonLinux2023ImageSsmParameterProps{
-			CpuType: awsec2.AmazonLinuxCpuType_ARM_64,
-		}),
-		SecurityGroup:   natSecurityGroup,
-		SourceDestCheck: jsii.Bool(false),
-		UserData:        awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{}),
-	})
-	// Temporary: SSM access to diagnose the NAT instance's networking directly
-	// (console output has been unhelpfully empty, and there's no other way to
-	// inspect a running instance's iptables/routing state without SSH).
-	natInstance.Role().AddManagedPolicy(awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("AmazonSSMManagedInstanceCore")))
-	// Amazon Linux 2023 on Nitro instances (t4g included) names its primary
-	// interface via systemd predictable naming (e.g. ens5), not eth0 — detect
-	// it at boot instead of hardcoding, or the MASQUERADE rule silently
-	// matches nothing.
-	//
-	// AL2023 also doesn't ship the classic `iptables` binary by default (it
-	// uses nftables) — confirmed via this instance's own console output
-	// ("iptables: command not found"), which silently no-op'd the MASQUERADE
-	// rule on the two prior deploy attempts. Install it explicitly first.
-	natInstance.UserData().AddCommands(
-		jsii.String("dnf install -y iptables"),
-		jsii.String("sysctl -w net.ipv4.ip_forward=1"),
-		jsii.String("echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf"),
-		jsii.String("IFACE=$(ip route show default | awk '{print $5; exit}')"),
-		jsii.String("iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE"),
-		jsii.String("iptables-save > /etc/sysconfig/iptables"),
-	)
-
-	awsec2.NewCfnRoute(stack, jsii.String("PrivateSubnetNatRoute"), &awsec2.CfnRouteProps{
-		RouteTableId:         privateSubnet.RouteTable().RouteTableId(),
-		DestinationCidrBlock: jsii.String("0.0.0.0/0"),
-		InstanceId:           natInstance.InstanceId(),
 	})
 
 	auroraSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("AuroraSecurityGroup"), &awsec2.SecurityGroupProps{
@@ -191,6 +105,35 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		}),
 	})
 
+	// Esri is the cheaper of the two available data providers and has solid
+	// NYC coverage — no need for HERE here.
+	placeIndex := awslocation.NewCfnPlaceIndex(stack, jsii.String("PlaceIndex"), &awslocation.CfnPlaceIndexProps{
+		IndexName:  jsii.String(placeIndexName),
+		DataSource: jsii.String("Esri"),
+	})
+
+	// Interface VPC endpoint for the Location Service Places API: reachable
+	// entirely inside the VPC, no NAT/internet path needed. The Lambda ENI in
+	// a "public" subnet still has no public IP of its own (an AWS Lambda
+	// limitation, not a routing one) — this was the actual reason a NAT
+	// instance existed before; the Places API doesn't need internet at all.
+	locationEndpointSecurityGroup := awsec2.NewSecurityGroup(stack, jsii.String("LocationEndpointSecurityGroup"), &awsec2.SecurityGroupProps{
+		Vpc:              vpc,
+		AllowAllOutbound: jsii.Bool(true),
+		Description:      jsii.String("Security group for the Location Service Places VPC endpoint"),
+	})
+	locationEndpointSecurityGroup.AddIngressRule(
+		awsec2.Peer_SecurityGroupId(lambdaSecurityGroup.SecurityGroupId(), nil),
+		awsec2.Port_Tcp(jsii.Number(443)),
+		jsii.String("Allow the ingest Lambda to reach the Location Service Places endpoint"),
+		jsii.Bool(false),
+	)
+	vpc.AddInterfaceEndpoint(jsii.String("LocationPlacesEndpoint"), &awsec2.InterfaceVpcEndpointOptions{
+		Service:        awsec2.InterfaceVpcEndpointAwsService_LOCATION_SERVICE_PLACES(),
+		Subnets:        &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
+		SecurityGroups: &[]awsec2.ISecurityGroup{locationEndpointSecurityGroup},
+	})
+
 	// Built via string concatenation with a CDK token (ClusterEndpoint().Hostname()
 	// isn't known until deploy time) — CDK detects the embedded token and resolves
 	// it into a CloudFormation Fn::Join automatically when this is used as a prop.
@@ -203,13 +146,16 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Code: awslambda.DockerImageCode_FromImageAsset(jsii.String(".."), &awslambda.AssetImageCodeProps{
 			File: jsii.String("dockerfile.lambda"),
 		}),
-		Vpc: vpc,
-		VpcSubnets: &awsec2.SubnetSelection{
-			Subnets: &[]awsec2.ISubnet{privateSubnet},
-		},
+		Vpc:            vpc,
+		VpcSubnets:     &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
 		SecurityGroups: &[]awsec2.ISecurityGroup{lambdaSecurityGroup},
+		// The only "internet" resource this Lambda needs is the GTFS zip on S3,
+		// reachable via the S3 gateway endpoint above without a NAT Gateway/Instance.
+		// CDK's default safety check doesn't know that, so this is explicit.
+		AllowPublicSubnet: jsii.Bool(true),
 		Environment: &map[string]*string{
-			"DATABASE_URL": jsii.String(databaseURL),
+			"DATABASE_URL":     jsii.String(databaseURL),
+			"PLACE_INDEX_NAME": jsii.String(placeIndexName),
 		},
 		Timeout:    awscdk.Duration_Seconds(jsii.Number(60)),
 		MemorySize: jsii.Number(512),
@@ -221,6 +167,11 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		// currently share the account's full unreserved pool with no per-function
 		// cap; revisit once the quota is raised.
 	})
+
+	ingestFunction.Role().AddToPrincipalPolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+		Actions:   &[]*string{jsii.String("geo:SearchPlaceIndexForText")},
+		Resources: &[]*string{placeIndex.AttrArn()},
+	}))
 
 	fnUrl := ingestFunction.AddFunctionUrl(&awslambda.FunctionUrlOptions{
 		AuthType: awslambda.FunctionUrlAuthType_NONE,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"time"
 
@@ -75,7 +74,15 @@ func handler(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	defer conn.Close(ctx)
 
-	geocoder := geocode.NewNominatimGeocoder(&http.Client{Timeout: 10 * time.Second})
+	geocoder, err := geocode.NewLocationServiceGeocoder(ctx, cfg.PlaceIndexName)
+	if err != nil {
+		log.Printf("handler: failed to init geocoder: %v", err)
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: 500,
+			Body:       `{"error":"internal error"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
 	return httpadapter.NewV2(api.NewMux(conn, geocoder)).ProxyWithContext(ctx, req)
 }
 

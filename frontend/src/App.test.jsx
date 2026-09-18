@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe('App', () => {
-  it('renders the header and both panels', () => {
+  it('renders the header and the route finder', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ last_fetch_time: '2026-09-17T18:00:28Z' }),
@@ -16,7 +16,6 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getByText(/last updated/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /get routes/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /find nearby stops/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /find route/i })).toBeInTheDocument();
   });
 });
