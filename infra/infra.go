@@ -46,6 +46,10 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		IsDefault: jsii.Bool(true),
 	})
 
+	// Restrict to the AZs Aurora already uses — no need for all 6 default-VPC
+	// AZs, and fewer AZs means fewer interface endpoint ENIs to pay for.
+	activeAZs := []*string{jsii.String("us-east-1a"), jsii.String("us-east-1c"), jsii.String("us-east-1d")}
+
 	// Free, private route to S3 — no NAT Gateway/Instance needed.
 	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
 		Service: awsec2.GatewayVpcEndpointAwsService_S3(),
@@ -120,7 +124,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	)
 	vpc.AddInterfaceEndpoint(jsii.String("LocationPlacesEndpoint"), &awsec2.InterfaceVpcEndpointOptions{
 		Service:        awsec2.InterfaceVpcEndpointAwsService_LOCATION_SERVICE_PLACES(),
-		Subnets:        &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
+		Subnets:        &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC, AvailabilityZones: &activeAZs},
 		SecurityGroups: &[]awsec2.ISecurityGroup{locationEndpointSecurityGroup},
 	})
 
@@ -136,7 +140,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 			File: jsii.String("dockerfile.lambda"),
 		}),
 		Vpc:            vpc,
-		VpcSubnets:     &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
+		VpcSubnets:     &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC, AvailabilityZones: &activeAZs},
 		SecurityGroups: &[]awsec2.ISecurityGroup{lambdaSecurityGroup},
 		// No internet needed (S3 gateway + Location Service interface endpoint);
 		// CDK's default safety check doesn't know that, so this is explicit.
