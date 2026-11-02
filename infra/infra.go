@@ -48,7 +48,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 
 	// Restrict to the AZs Aurora already uses — no need for all 6 default-VPC
 	// AZs, and fewer AZs means fewer interface endpoint ENIs to pay for.
-	activeAZs := []*string{jsii.String("us-east-1a"), jsii.String("us-east-1c"), jsii.String("us-east-1d")}
+	activeAZs := []*string{jsii.String("us-east-1d")}
 
 	// Free, private route to S3 — no NAT Gateway/Instance needed.
 	vpc.AddGatewayEndpoint(jsii.String("S3Endpoint"), &awsec2.GatewayVpcEndpointOptions{
